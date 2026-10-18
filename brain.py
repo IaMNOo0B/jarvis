@@ -242,6 +242,7 @@ class BrainEngine:
         self.consult_rounds = int(cloud.get("consult_rounds", 3))
         self._consult_depth = 0
         self._consult_used = 0
+        self._turn_mode = None  # per-turn override via respond(force_mode=...)
 
         self.services = services or {}
         self.emit = emit or (lambda kind, payload: None)
@@ -303,7 +304,8 @@ class BrainEngine:
     @property
     def _primary(self) -> str:
         """Which brain drives the conversation."""
-        if self.mode == "cloud_first" and self.cloud_configured:
+        mode = (self._turn_mode or self.mode or "").lower()
+        if mode == "cloud_first" and self.cloud_configured:
             return "cloud"
         return "local"
 
@@ -316,12 +318,23 @@ class BrainEngine:
         return self._client
 
     # ------------------------------------------------------------------ turns
-    def respond(self, user_text: str) -> BrainResult:
-        """Blocking: run one full turn (tool loop + synthesis)."""
+    def respond(self, user_text: str, force_mode: str | None = None) -> BrainResult:
+        """Blocking: run one full turn (tool loop + synthesis).
+
+        force_mode overrides the configured brain mode for this turn only
+        ("local_first" / "cloud_first"); turns are serialised by the lock,
+        so the override can't leak into another turn.
+        """
         if not self._lock.acquire(blocking=False):
             return BrainResult(reply="", error="busy")
         try:
-            return self._respond_locked(user_text.strip())
+            fm = (force_mode or "").strip().lower()
+            prev = self._turn_mode
+            self._turn_mode = fm if fm in ("local_first", "cloud_first") else None
+            try:
+                return self._respond_locked(user_text.strip())
+            finally:
+                self._turn_mode = prev
         finally:
             self._lock.release()
 

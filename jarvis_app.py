@@ -91,10 +91,12 @@ class JarvisApp:
         self.transcriber = None
         self.engine = None       # audio engine
         self.wake = None
+        self.wake_word_cloud = None  # "hello_jarvis" -> cloud brain for the turn
         self.system_actions = None
 
         self._stop = threading.Event()
         self._wake_evt = threading.Event()
+        self._wake_word = None  # which wake word fired ("hey_jarvis"/"hello_jarvis")
         self._ptt_evt = threading.Event()
         self._shutdown_evt = threading.Event()
         self._greeted_once = False
@@ -288,7 +290,14 @@ class JarvisApp:
         if self.wake_on:
             from wake import WakeListener
             v = self.cfg.get("voice", {})
-            self.wake = WakeListener(wakeword=v.get("wake_word", "hey_jarvis"),
+            # Two wake words, two brains: "hey_jarvis" -> local,
+            # "hello_jarvis" -> cloud. The cloud word is skipped gracefully
+            # until its openWakeWord model is trained and installed.
+            words = [v.get("wake_word", "hey_jarvis")]
+            self.wake_word_cloud = (v.get("wake_word_cloud") or "").strip() or None
+            if self.wake_word_cloud and self.wake_word_cloud not in words:
+                words.append(self.wake_word_cloud)
+            self.wake = WakeListener(wakewords=words,
                                      threshold=float(v.get("wake_threshold", 0.5)))
 
         from stt import Transcriber
@@ -339,7 +348,8 @@ class JarvisApp:
             if self.wake:
                 try:
                     self.wake.preload()
-                    self._note(f"wake word '{self.wake.wakeword}' armed")
+                    armed = ", ".join(self.wake.words) or "none"
+                    self._note(f"wake words armed: {armed}")
                 except Exception as e:
                     self._note(f"wake word unavailable: {e}")
         threading.Thread(target=_load, daemon=True, name="jarvis-warmup").start()
@@ -414,6 +424,11 @@ class JarvisApp:
     def _on_ptt(self) -> None:
         self._ptt_evt.set()
 
+    def _on_wake(self, word: str, score: float) -> None:
+        """A wake word fired — remember which one, then wake the loop."""
+        self._wake_word = word
+        self._wake_evt.set()
+
     # ------------------------------------------------------------- controllers
     def _controller(self) -> None:
         """Voice state machine — runs on its own thread."""
@@ -442,9 +457,9 @@ class JarvisApp:
             try:
                 self.wake.preload()
                 wake_sink = self.wake.make_sink(
-                    lambda s: self._wake_evt.set(), threshold=wake_thr)
+                    self._on_wake, threshold=wake_thr)
                 barge_sink = self.wake.make_sink(
-                    lambda s: (self._wake_evt.set(), self.speaker.stop()),
+                    lambda word, s: (self._on_wake(word, s), self.speaker.stop()),
                     threshold=barge_thr, cooldown=2.0)
             except Exception as e:
                 self._note(f"wake word disabled: {e}")
@@ -467,7 +482,10 @@ class JarvisApp:
                     triggered = True
             if self._stop.is_set():
                 break
+            # Which phrase woke him — decides the brain for this turn.
+            wake_word = self._wake_word
             self._wake_evt.clear()
+            self._wake_word = None
             self._ptt_evt.clear()
             self.engine.set_sink(None)                  # mute during the chime
 
@@ -480,11 +498,11 @@ class JarvisApp:
             if audio is None:
                 self._note("didn't catch that")
                 continue
-            self._run_turn(audio, barge_sink=barge_sink)
+            self._run_turn(audio, barge_sink=barge_sink, wake_word=wake_word)
 
         self.engine and self.engine.set_sink(None)
 
-    def _run_turn(self, audio, barge_sink=None) -> None:
+    def _run_turn(self, audio, barge_sink=None, wake_word=None) -> None:
         """STT -> brain -> speech for one captured utterance."""
         try:
             text = self.transcriber.transcribe(audio)
@@ -495,10 +513,17 @@ class JarvisApp:
             self._note("(nothing intelligible)")
             return
         print(f"\nYou: {text}", flush=True)
+        # "hello jarvis" drives the cloud brain for this turn; everything
+        # else (incl. push-to-talk) uses the configured default brain.
+        force_mode = None
+        if wake_word and wake_word == self.wake_word_cloud:
+            force_mode = "cloud_first"
+            if not self.brain.cloud_configured:
+                self._note("cloud brain not configured — answering locally")
         if self.bridge:
             self.bridge.exchange.emit("you", text)
 
-        result = self.brain.respond(text)
+        result = self.brain.respond(text, force_mode=force_mode)
         if result.error == "busy":
             return
         reply = result.reply or "(no reply)"

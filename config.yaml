@@ -57,7 +57,8 @@ voice:
   stt_language: "auto"               # auto-detect per utterance; "en" pins English, "hi" pins Hindi
   # stt_initial_prompt: ""           # override the built-in Hinglish bias prompt (empty = no prompt)
   wake_enabled: true
-  wake_word: "hey_jarvis"
+  wake_word: "hey_jarvis"          # -> local brain
+  wake_word_cloud: "hello_jarvis"  # -> cloud brain for the turn (needs a trained openWakeWord model; skipped gracefully until present)
   wake_threshold: 0.5
   barge_in_threshold: 0.7            # wake score needed to interrupt JARVIS speaking
   silence_seconds: 1.2               # trailing silence that ends an utterance
