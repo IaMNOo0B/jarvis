@@ -87,6 +87,49 @@ def main() -> int:
     ttk.Label(key_frame, text="Free key: aistudio.google.com/apikey — or add it later in Settings → API Keys.",
               foreground="#5b7183", font=("Segoe UI", 8)).pack(anchor="w")
 
+    # ---------------------------------------------------------- local brain
+    brain_frame = ttk.Frame(root)
+    brain_frame.pack(fill="x", padx=20, pady=2)
+    brain_status = ttk.Label(brain_frame, text="Local brain: checking…",
+                             foreground="#5b7183", font=("Segoe UI", 8))
+    brain_status.pack(anchor="w")
+
+    def refresh_brain_status():
+        try:
+            import localbrain
+            s = localbrain.status()
+            if s["installing"]:
+                brain_status.configure(text="Local brain: installing… " +
+                                            " | ".join(s["log"][-1:]))
+            elif s["installed"] and s["reachable"]:
+                ms = ", ".join(s["models"][:2]) if s["models"] else "no models"
+                brain_status.configure(text=f"Local brain: ready ({ms})")
+            elif s["installed"]:
+                brain_status.configure(text="Local brain: installed, not running")
+            else:
+                brain_status.configure(text="Local brain: not installed")
+        except Exception:
+            brain_status.configure(text="Local brain: unknown")
+        root.after(3000, refresh_brain_status)
+
+    def on_install_brain():
+        try:
+            import localbrain
+        except Exception as e:
+            messagebox.showerror("JARVIS Setup", f"Couldn't load installer: {e}")
+            return
+        msg = localbrain.start_install()
+        log_box.configure(state="normal")
+        log_box.insert("end", msg + "\n")
+        log_box.see("end")
+        log_box.configure(state="disabled")
+        brain_btn.configure(state="disabled")
+
+    brain_btn = ttk.Button(brain_frame, text="Install local brain (Ollama)",
+                           command=on_install_brain)
+    brain_btn.pack(anchor="w", pady=2)
+    refresh_brain_status()
+
     # -------------------------------------------------------------- buttons
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=10)
