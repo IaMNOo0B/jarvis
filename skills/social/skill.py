@@ -44,8 +44,9 @@ def _user_file(name: str) -> str:
 
 def _secrets() -> dict:
     try:
-        from settings import _load_secrets
-        return _load_secrets() or {}
+        import yaml
+        with open(_user_file("secrets.local.yaml"), encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
     except Exception:
         return {}
 

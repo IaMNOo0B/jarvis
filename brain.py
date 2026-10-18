@@ -246,6 +246,14 @@ class BrainEngine:
         self._consult_depth = 0
         self._consult_used = 0
         self._turn_mode = None  # per-turn override via respond(force_mode=...)
+        # Backup brain (Groq — free, no card): tried once when the primary
+        # cloud brain fails. Key via GROQ_API_KEY env or Settings → API Keys.
+        fb = cloud.get("fallback", {}) or {}
+        self.fallback_base = (fb.get("base_url")
+                              or "https://api.groq.com/openai/v1").rstrip("/")
+        self.fallback_key = self._resolve_fallback_key(fb)
+        self.fallback_model_cfg = (fb.get("model") or "").strip()
+        self._fallback_model_cache: str | None = None
 
         self.services = services or {}
         self.emit = emit or (lambda kind, payload: None)
@@ -261,6 +269,55 @@ class BrainEngine:
     @property
     def cloud_configured(self) -> bool:
         return bool(self.cloud_base and self.cloud_key and self.cloud_model)
+
+    @property
+    def fallback_configured(self) -> bool:
+        return bool(self.fallback_base and self.fallback_key)
+
+    def _resolve_fallback_key(self, fb: dict) -> str:
+        for var in dict.fromkeys(
+                [fb.get("api_key_env") or "", "GROQ_API_KEY"]):
+            val = os.environ.get(var, "")
+            if val:
+                return val
+        try:
+            if os.path.isfile(SECRETS_PATH):
+                with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                for k in ("groq_api_key", "cloud_api_key", "api_key"):
+                    val = str(data.get(k) or "").strip()
+                    if val:
+                        return val
+        except Exception:
+            pass
+        return ""
+
+    def _get_fallback_model(self) -> str:
+        """Model for the backup brain. Config wins; otherwise ask the
+        endpoint what it has (free lineups rotate); last resort hardcoded."""
+        if self._fallback_model_cache:
+            return self._fallback_model_cache
+        if self.fallback_model_cfg:
+            self._fallback_model_cache = self.fallback_model_cfg
+            return self._fallback_model_cache
+        try:
+            import requests
+            r = requests.get(
+                f"{self.fallback_base}/models",
+                headers={"Authorization": f"Bearer {self.fallback_key}"},
+                timeout=15)
+            ids = [m.get("id") for m in r.json().get("data", [])
+                   if m.get("id")]
+            bad = ("embed", "whisper", "tts", "guard")
+            ids = [i for i in ids
+                   if not any(b in i.lower() for b in bad)]
+            pick = next((i for i in ids
+                         if "oss" in i.lower() or "instruct" in i.lower()),
+                        None)
+            self._fallback_model_cache = pick or (ids[0] if ids else "")
+        except Exception:
+            self._fallback_model_cache = ""
+        return self._fallback_model_cache or "llama-3.3-70b-versatile"
 
     # ------------------------------------------------------ provider defaults
     def _resolve_base(self, cloud: dict) -> str:
@@ -469,14 +526,29 @@ class BrainEngine:
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 
+    def _post_chat(self, base: str, model: str, key: str,
+                   payload: dict) -> tuple[dict | None, str | None]:
+        """One OpenAI-compatible chat POST. Shared by primary + fallback."""
+        import requests
+        body = dict(payload)
+        body["model"] = model
+        r = requests.post(
+            f"{base}/chat/completions",
+            json=body,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=self.cloud_timeout,
+        )
+        if r.status_code != 200:
+            return None, f"cloud HTTP {r.status_code}: {r.text[:200]}"
+        msg = r.json()["choices"][0]["message"]
+        return _normalize_cloud_msg(msg), None
+
     def _call_cloud(self, force_no_tools: bool = False,
                     messages: list | None = None,
                     tools: list | None = None) -> tuple[dict | None, str | None]:
         if not self.cloud_configured:
             return None, "cloud endpoint not configured"
         try:
-            import requests
-            url = f"{self.cloud_base}/chat/completions"
             payload = {
                 "model": self.cloud_model,
                 "messages": self._prepare(self.history if messages is None else messages,
@@ -488,16 +560,17 @@ class BrainEngine:
             if not force_no_tools:
                 payload["tools"] = tools if tools is not None else self._tools_for("cloud")
                 payload["tool_choice"] = "auto"
-            r = requests.post(
-                url,
-                json=payload,
-                headers={"Authorization": f"Bearer {self.cloud_key}"},
-                timeout=self.cloud_timeout,
-            )
-            if r.status_code != 200:
-                return None, f"cloud HTTP {r.status_code}: {r.text[:200]}"
-            msg = r.json()["choices"][0]["message"]
-            return _normalize_cloud_msg(msg), None
+            msg, err = self._post_chat(self.cloud_base, self.cloud_model,
+                                       self.cloud_key, payload)
+            if msg is not None or not self.fallback_configured:
+                return msg, err
+            # Primary failed — one shot at the backup brain.
+            fmsg, ferr = self._post_chat(
+                self.fallback_base, self._get_fallback_model(),
+                self.fallback_key, payload)
+            if fmsg is not None:
+                return fmsg, None
+            return None, f"primary brain failed ({err}); backup failed ({ferr})"
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 

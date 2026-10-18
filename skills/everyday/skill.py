@@ -4,8 +4,10 @@
   calculate     safe arithmetic (LLMs are bad at math; this isn't)
   set_timer / list_timers / cancel_timer
                 countdown timers with a spoken "done, sir"
-  get_weather   wttr.in, no API key, optional location
-  get_news      headlines via DuckDuckGo, optional topic
+  get_weather   Open-Meteo (no key), hourly + 16-day, wttr.in fallback
+  get_news      Currents API when a key is set, DuckDuckGo fallback
+  convert_currency  ECB rates via Frankfurter, no API key
+  web_search    Tavily agent-search when a key is set, DuckDuckGo fallback
   define_word   dictionaryapi.dev, no API key
   translate     English <-> Hindi via MyMemory, no API key
   pick_one      decide between options ("pick a movie")
@@ -182,9 +184,62 @@ def _cancel_timer(args):
     return f"Timer #{tid} '{info['label']}' {status}."
 
 # ------------------------------------------------------------------- weather
+_WMO = {0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+        45: "fog", 48: "rime fog", 51: "light drizzle", 53: "drizzle",
+        55: "heavy drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
+        61: "light rain", 63: "rain", 65: "heavy rain",
+        66: "freezing rain", 67: "freezing rain", 71: "light snow",
+        73: "snow", 75: "heavy snow", 77: "snow grains",
+        80: "light showers", 81: "showers", 82: "violent showers",
+        85: "light snow showers", 86: "snow showers", 95: "thunderstorm",
+        96: "storm with hail", 99: "storm with hail"}
+
+
+def _resolve_latlon(loc: str):
+    """(lat, lon, place). Geocodes a city, or IP-locates when loc is empty."""
+    if loc:
+        r = requests.get("https://geocoding-api.open-meteo.com/v1/search",
+                         params={"name": loc, "count": 1, "language": "en"},
+                         timeout=10, headers=_UA)
+        hits = r.json().get("results") or []
+        if not hits:
+            raise ValueError("no match")
+        h = hits[0]
+        name = h.get("name", loc)
+        if h.get("country"):
+            name += f", {h['country']}"
+        return h["latitude"], h["longitude"], name
+    r = requests.get("http://ip-api.com/json/", timeout=10, headers=_UA)
+    j = r.json()
+    return j["lat"], j["lon"], j.get("city") or "your area"
+
+
 def _get_weather(args):
     loc = str(args.get("location", "") or "").strip()
     try:
+        lat, lon, place = _resolve_latlon(loc)
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon,
+                    "current": "temperature_2m,relative_humidity_2m,"
+                               "apparent_temperature,weather_code,wind_speed_10m",
+                    "daily": "temperature_2m_max,temperature_2m_min",
+                    "timezone": "auto"},
+            timeout=10, headers=_UA)
+        j = r.json()
+        cur = j.get("current", {})
+        daily = j.get("daily", {})
+        desc = _WMO.get(cur.get("weather_code"), "fair skies")
+        hi = (daily.get("temperature_2m_max") or ["?"])[0]
+        lo = (daily.get("temperature_2m_min") or ["?"])[0]
+        return (f"Weather in {place}: {desc}, {cur.get('temperature_2m', '?')}°C "
+                f"(feels {cur.get('apparent_temperature', '?')}°C), "
+                f"humidity {cur.get('relative_humidity_2m', '?')}%, "
+                f"wind {cur.get('wind_speed_10m', '?')} km/h. "
+                f"Today: {lo}–{hi}°C.")
+    except Exception:
+        pass
+    try:  # fallback: wttr.in
         url = "https://wttr.in/"
         if loc:
             url += loc.replace(" ", "%20") + "/"
@@ -204,6 +259,22 @@ def _get_weather(args):
 # ---------------------------------------------------------------------- news
 def _get_news(args):
     topic = str(args.get("topic", "") or "").strip() or "top news today"
+    key = _secret("currents_api_key")
+    if key:
+        try:
+            params = {"apiKey": key, "language": "en"}
+            if topic == "top news today":
+                url = "https://api.currentsapi.services/v1/latest-news"
+            else:
+                url = "https://api.currentsapi.services/v1/search"
+                params["keywords"] = topic
+            r = requests.get(url, params=params, timeout=10, headers=_UA)
+            arts = r.json().get("news") or []
+            titles = [a.get("title") for a in arts if a.get("title")][:4]
+            if titles:
+                return "Headlines: " + "; ".join(titles) + "."
+        except Exception:
+            pass
     try:
         from ddgs import DDGS
         with DDGS() as ddgs:
@@ -217,6 +288,69 @@ def _get_news(args):
         return "Headlines: " + "; ".join(titles) + "."
     except Exception:
         return "News service unreachable, sir."
+
+# ------------------------------------------------------------------ currency
+def _convert_currency(args):
+    amount = str(args.get("amount", "1") or "1").strip()
+    frm = str(args.get("from", "USD") or "USD").strip().upper()
+    to = str(args.get("to", "INR") or "INR").strip().upper()
+    try:
+        val = float(amount.replace(",", ""))
+    except Exception:
+        return "Give me a number to convert, sir."
+    try:
+        r = requests.get("https://api.frankfurter.app/latest",
+                         params={"amount": val, "from": frm, "to": to},
+                         timeout=10, headers=_UA)
+        rate = (r.json().get("rates") or {}).get(to)
+        if rate is None:
+            raise ValueError("unknown currency")
+        return f"{val:g} {frm} = {rate:,.2f} {to}, sir (ECB daily rate)."
+    except Exception as e:
+        return f"Couldn't convert that, sir ({type(e).__name__})."
+
+# ---------------------------------------------------------------- web search
+def _web_search(args):
+    q = str(args.get("query", "") or "").strip()
+    if not q:
+        return "What should I search for, sir?"
+    key = _secret("tavily_api_key")
+    if key:
+        try:
+            r = requests.post(
+                "https://api.tavily.com/search",
+                json={"api_key": key, "query": q, "max_results": 5,
+                      "include_answer": False},
+                timeout=15, headers=_UA)
+            res = r.json().get("results") or []
+            lines = [f"— {x.get('title')}: {(x.get('content') or '')[:220]}"
+                     for x in res[:4] if x.get("title")]
+            if lines:
+                return f"Search results for '{q}', sir:\n" + "\n".join(lines)
+        except Exception:
+            pass
+    try:
+        from ddgs import DDGS
+        with DDGS() as ddgs:
+            items = list(ddgs.text(q, max_results=5))
+        lines = [f"— {i.get('title')}: {(i.get('body') or '')[:220]}"
+                 for i in items[:4] if i.get("title")]
+        if not lines:
+            return "Nothing found, sir."
+        return f"Search results for '{q}', sir:\n" + "\n".join(lines)
+    except Exception:
+        return "Search unreachable, sir."
+
+
+def _secret(name: str) -> str:
+    """Read one key from secrets.local.yaml without importing the Qt UI."""
+    try:
+        import yaml
+        from paths import user_file
+        with open(user_file("secrets.local.yaml"), encoding="utf-8") as f:
+            return str((yaml.safe_load(f) or {}).get(name) or "").strip()
+    except Exception:
+        return ""
 
 # ---------------------------------------------------------------- dictionary
 def _define_word(args):
@@ -359,6 +493,24 @@ TOOL_DEFINITIONS = [
                            "type": "string",
                            "description": "'pizza, biryani, pasta'"}},
                        "required": ["options"]}}},
+    {"type": "function", "function": {
+        "name": "convert_currency",
+        "description": "Convert money between currencies at real ECB rates.",
+        "parameters": {"type": "object",
+                       "properties": {"amount": {"type": "string"},
+                                      "from": {"type": "string",
+                                               "description": "'USD'"},
+                                      "to": {"type": "string",
+                                             "description": "'INR'"}},
+                       "required": ["amount"]}}},
+    {"type": "function", "function": {
+        "name": "web_search",
+        "description": ("Agent-grade web search (Tavily when a key is set, "
+                        "DuckDuckGo otherwise). Use for anything the news "
+                        "tool doesn't cover."),
+        "parameters": {"type": "object",
+                       "properties": {"query": {"type": "string"}},
+                       "required": ["query"]}}},
 ]
 
 
@@ -386,6 +538,10 @@ def handle(tool_name, args, services=None):
             return _translate(args)
         if tool_name == "pick_one":
             return _pick_one(args)
+        if tool_name == "convert_currency":
+            return _convert_currency(args)
+        if tool_name == "web_search":
+            return _web_search(args)
     except Exception as e:
         return f"Everyday tool {tool_name} failed: {e}"
     return None
