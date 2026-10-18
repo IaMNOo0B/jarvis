@@ -41,6 +41,15 @@ def current_commit() -> str | None:
         return None
 
 
+def _file_hash(path: str):
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except Exception:
+        return None
+
+
 def pull_updates() -> tuple[bool, str]:
     """Pull the latest code from GitHub. Returns (ok, human message)."""
     if not is_git_repo():
@@ -50,6 +59,7 @@ def pull_updates() -> tuple[bool, str]:
                 "and this button will fetch every update I push.")
     try:
         cur = current_commit()
+        req_before = _file_hash(os.path.join(repo_dir(), "requirements.txt"))
         r = _git("pull")
     except FileNotFoundError:
         return False, "Git isn't installed on this PC, sir — install it from git-scm.com."
@@ -59,8 +69,13 @@ def pull_updates() -> tuple[bool, str]:
     if r.returncode != 0:
         return False, f"Update failed, sir: {out[:300]}"
     new = current_commit()
+    # New Python packages don't install themselves — flag it.
+    req_note = ""
+    if _file_hash(os.path.join(repo_dir(), "requirements.txt")) != req_before:
+        req_note = (" Also: the requirements changed, so run "
+                    "`pip install -r requirements.txt` once in the jarvis folder.")
     if "Already up to date" in out or new == cur:
-        return True, f"Already up to date, sir ({new or 'unknown version'})."
+        return True, f"Already up to date, sir ({new or 'unknown version'}).{req_note}"
     return (True,
             f"Updated {cur or '?'} → {new or '?'}, sir. "
-            f"Restart JARVIS to run the new version.")
+            f"Restart JARVIS to run the new version.{req_note}")
