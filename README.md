@@ -92,7 +92,12 @@ environment variable works too. Without a key everything still runs local.
   in RAM, never touch disk. Needs the cloud brain.
   `screen_watcher.enabled: true`.
 - **Everyday tools**: clock, calculator, timers, weather, headlines,
-  dictionary, English↔Hindi translator, decisions — 30 tools and counting.
+  dictionary, English↔Hindi translator, decisions — 41 tools and counting.
+- **Deep research**: multi-round investigations with a sourced dossier.
+- **GitHub hands**: read any public repo, list and create issues.
+- **Reports**: "make me a report" → styled page, opened for you.
+- **Goals**: long-term tracking — add goals, log progress, mark done.
+- **Feed**: your morning digest page (date, weather, headlines, goals).
 
 ## Configuration — `config.yaml`
 
