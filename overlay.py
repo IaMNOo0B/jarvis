@@ -12,13 +12,20 @@ import ctypes
 import ctypes.wintypes
 import time
 
-from PyQt6.QtCore import (QAbstractNativeEventFilter, QObject, QPoint, QRectF, Qt,
-                          QTimer, pyqtSignal)
-from PyQt6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
-                         QRadialGradient)
+from PyQt6.QtCore import (
+    QAbstractNativeEventFilter,
+    QObject,
+    QPoint,
+    QPointF,
+    QRectF,
+    Qt,
+    QTimer,
+    pyqtSignal,
+)
+from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QRadialGradient
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from hud_widgets import AMBER, ArcReactor, CYAN, EyeGlyph, Gauge, Transcript, Waveform
+from hud_widgets import AMBER, CYAN, ArcReactor, EyeGlyph, Gauge, Transcript, Waveform
 
 WM_HOTKEY = 0x0312
 HID_TOGGLE_VIS = 1
@@ -391,7 +398,8 @@ class HudWindow(QWidget):
 
     def _ensure_topmost(self) -> None:
         try:
-            import win32con, win32gui
+            import win32con
+            import win32gui
             hwnd = int(self.winId())
             win32gui.SetWindowPos(
                 hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
@@ -489,7 +497,8 @@ class HudWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,
                           self._click_through)
         try:
-            import win32con, win32gui
+            import win32con
+            import win32gui
             hwnd = int(self.winId())
             style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
             style |= win32con.WS_EX_LAYERED | win32con.WS_EX_TOOLWINDOW
