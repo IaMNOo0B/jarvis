@@ -1,0 +1,1 @@
+# Placeholder for model configuration variables (e.g. model name, context size)
