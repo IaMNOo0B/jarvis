@@ -194,6 +194,7 @@ def t_mode_selection():
     e = make_engine(cfg_overrides={"brain": {"mode": "cloud_first"}}, key="k")
     check("cloud_first + key -> cloud drives", e._primary == "cloud", e._primary)
     e = make_engine(cfg_overrides={"brain": {"mode": "cloud_first"}})
+    e.cloud_key = ""  # hermetic: ignore any real key in secrets.local.yaml
     check("cloud_first without key falls back to local", e._primary == "local")
     e = make_engine(cfg_overrides={"brain": {"mode": "local_first"}}, key="k")
     check("local_first keeps local in charge", e._primary == "local")

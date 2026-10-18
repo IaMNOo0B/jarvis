@@ -151,6 +151,7 @@ class JarvisApp:
 
         self.bridge = HudBridge()
         self.hud = HudWindow(self.bridge, self.cfg) if self.hud_on else None
+        self._setup_tray()
 
         self._hotkey_filter = HotkeyFilter(self.bridge)
         self.app.installNativeEventFilter(self._hotkey_filter)
@@ -196,6 +197,60 @@ class JarvisApp:
         return self.app.exec()
 
     # -------------------------------------------------------------- settings
+    # ---------------------------------------------------------- system tray
+    def _tray_icon(self):
+        """Programmatic arc-reactor tray icon — no asset file to go missing."""
+        from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QPen
+        from PyQt6.QtCore import Qt
+        pm = QPixmap(64, 64)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # outer copper ring
+        p.setPen(QPen(QColor(200, 120, 60), 5))
+        p.drawEllipse(6, 6, 52, 52)
+        # glowing core
+        p.setPen(QPen(QColor(120, 220, 255), 3))
+        p.drawEllipse(16, 16, 32, 32)
+        p.setBrush(QColor(180, 235, 255))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(26, 26, 12, 12)
+        p.end()
+        return QIcon(pm)
+
+    def _setup_tray(self) -> None:
+        """System-tray icon: the visible proof JARVIS is running. Left-click
+        toggles the HUD; right-click gives Show/HUD, Settings, Quit."""
+        self.tray = None
+        try:
+            from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+            from PyQt6.QtGui import QAction
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                return
+            tray = QSystemTrayIcon(self._tray_icon(), self.app)
+            tray.setToolTip("JARVIS — running")
+            menu = QMenu()
+            show_act = QAction("Show / hide HUD  (Ctrl+Alt+J)", menu)
+            show_act.triggered.connect(
+                lambda: self.hud.toggle_visible() if self.hud else None)
+            settings_act = QAction("Settings  (Ctrl+Alt+S)", menu)
+            settings_act.triggered.connect(self._open_settings)
+            quit_act = QAction("Quit JARVIS  (Ctrl+Alt+Q)", menu)
+            quit_act.triggered.connect(self.app.quit)
+            menu.addAction(show_act)
+            menu.addAction(settings_act)
+            menu.addSeparator()
+            menu.addAction(quit_act)
+            tray.setContextMenu(menu)
+            tray.activated.connect(
+                lambda reason: self.hud.toggle_visible()
+                if self.hud and reason
+                == QSystemTrayIcon.ActivationReason.Trigger else None)
+            tray.show()
+            self.tray = tray
+        except Exception:
+            pass  # tray is a nicety — never let it break startup
+
     def _open_settings(self) -> None:
         """Open the settings panel (from hotkey or HUD gear button)."""
         if self._settings_open:
