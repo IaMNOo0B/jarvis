@@ -1,1 +1,0 @@
-# Basic chat interface script placeholder.
