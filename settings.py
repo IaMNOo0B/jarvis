@@ -19,9 +19,13 @@ a restart — the dialog says so at the bottom.
 import os
 
 import yaml
+from PyQt6 import QtCore
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QDoubleSpinBox, QFormLayout, QLabel, QLineEdit,
-                             QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+                             QPushButton, QSpinBox, QTabWidget, QVBoxLayout,
+                             QWidget)
+
+import updater
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 # Writable locations: next to the repo in dev, %APPDATA%/JARVIS when installed.
@@ -159,12 +163,29 @@ def save_panel(values: dict, secrets: dict) -> None:
 
 
 # ------------------------------------------------------------------- dialog
+class _UpdateWorker(QtCore.QThread):
+    """Runs a zero-arg updater function off the UI thread."""
+    done = QtCore.pyqtSignal(bool, str)
+
+    def __init__(self, fn, parent=None):
+        super().__init__(parent)
+        self._fn = fn
+
+    def run(self) -> None:  # noqa: N802 (Qt naming)
+        try:
+            ok, msg = self._fn()
+        except Exception as e:
+            ok, msg = False, f"Failed, sir: {e}"
+        self.done.emit(ok, msg)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, cfg: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("JARVIS Settings")
         self.setMinimumWidth(480)
         self._widgets: dict = {}
+        self._update_worker = None
         secrets = _load_secrets()
 
         tabs = QTabWidget()
@@ -218,6 +239,8 @@ class SettingsDialog(QDialog):
             form.addRow(label, w)
             self._widgets[dotted] = (kind, w)
 
+        self._build_updates_tab(tabs)
+
         note = QLabel(
             "Voice engine & API keys apply immediately. "
             "Everything else needs a restart.")
@@ -234,6 +257,63 @@ class SettingsDialog(QDialog):
         layout.addWidget(tabs)
         layout.addWidget(note)
         layout.addWidget(buttons)
+
+    def _build_updates_tab(self, tabs: QTabWidget) -> None:
+        """Updates tab: pull updates and install requirements — no terminal.
+
+        Not a setting — actions. Both run on a QThread worker so the dialog
+        never freezes; results land back on the UI thread.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        commit = updater.current_commit() if updater.is_git_repo() else None
+        status = QLabel(
+            f"Current version: {commit}" if commit
+            else "Not a git clone — updates need the repo cloned, not the ZIP.")
+        status.setWordWrap(True)
+        layout.addWidget(status)
+
+        result = QLabel("")
+        result.setWordWrap(True)
+        result.setStyleSheet("color: rgba(160,200,220,0.85);")
+
+        btn = QPushButton("Check for updates")
+        btn.setMinimumHeight(36)
+        pip_btn = QPushButton("Install / repair requirements")
+        pip_btn.setToolTip("Runs pip install -r requirements.txt. "
+                           "Safe to run any time; pip skips what's already there.")
+
+        def on_done(ok: bool, msg: str):
+            btn.setEnabled(True)
+            btn.setText("Check for updates")
+            pip_btn.setEnabled(True)
+            pip_btn.setText("Install / repair requirements")
+            result.setText(msg)
+            new_commit = updater.current_commit()
+            if new_commit:
+                status.setText(f"Current version: {new_commit}")
+
+        def _run(fn, active_btn: QPushButton, busy_text: str, working_text: str):
+            btn.setEnabled(False)
+            pip_btn.setEnabled(False)
+            active_btn.setText(busy_text)
+            result.setText(working_text)
+            self._update_worker = _UpdateWorker(fn)
+            self._update_worker.done.connect(on_done)
+            self._update_worker.start()
+
+        btn.clicked.connect(
+            lambda: _run(updater.pull_updates, btn, "Updating…",
+                         "Pulling the latest from GitHub…"))
+        pip_btn.clicked.connect(
+            lambda: _run(updater.install_requirements, pip_btn, "Installing…",
+                         "Installing requirements (can take a few minutes)…"))
+        layout.addWidget(btn)
+        layout.addWidget(pip_btn)
+        layout.addWidget(result)
+        layout.addStretch(1)
+        tabs.addTab(page, "Updates")
 
     def _read_values(self) -> tuple[dict, dict]:
         values: dict = {}

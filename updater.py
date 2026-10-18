@@ -11,6 +11,7 @@ pull_updates() says so plainly instead of failing.
 
 import os
 import subprocess
+import sys
 
 _TIMEOUT = 120
 
@@ -79,3 +80,21 @@ def pull_updates() -> tuple[bool, str]:
     return (True,
             f"Updated {cur or '?'} → {new or '?'}, sir. "
             f"Restart JARVIS to run the new version.{req_note}")
+
+
+def install_requirements() -> tuple[bool, str]:
+    """`pip install -r requirements.txt`. Idempotent — pip skips what's
+    already there, so it's safe to run any time."""
+    req = os.path.join(repo_dir(), "requirements.txt")
+    if not os.path.isfile(req):
+        return False, "No requirements.txt found here, sir."
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", req],
+            capture_output=True, text=True, timeout=600)
+    except Exception as e:
+        return False, f"Install failed, sir: {e}"
+    if r.returncode != 0:
+        tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+        return False, "Install failed, sir: " + " ".join(tail)
+    return True, "Requirements installed, sir. Restart JARVIS."
