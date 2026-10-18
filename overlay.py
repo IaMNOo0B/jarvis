@@ -210,6 +210,7 @@ class HudWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setFixedSize(int(hcfg.get("width", 470)), int(hcfg.get("height", 680)))
 
+        self._cfg = cfg  # full config for _build (eye glyph watches this)
         self._build()
         self._wire_bridge()
         self._place()
@@ -291,7 +292,7 @@ class HudWindow(QWidget):
         self.model_lbl.setFont(QFont("Segoe UI", 8))
         self.model_lbl.setStyleSheet("color: rgba(150,210,235,0.55); background: transparent;")
         self.eye = EyeGlyph()
-        self.eye.set_watching(bool(cfg.get("screen_watcher", {}).get("enabled", False)))
+        self.eye.set_watching(bool(self._cfg.get("screen_watcher", {}).get("enabled", False)))
         footer.addWidget(self.presence_lbl)
         footer.addStretch(1)
         footer.addWidget(self.eye)
