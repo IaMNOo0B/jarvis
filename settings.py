@@ -24,8 +24,10 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_PATH = os.path.join(_BASE, "settings.local.yaml")
-SECRETS_PATH = os.path.join(_BASE, "secrets.local.yaml")
+# Writable locations: next to the repo in dev, %APPDATA%/JARVIS when installed.
+from paths import user_file
+SETTINGS_PATH = user_file("settings.local.yaml")
+SECRETS_PATH = user_file("secrets.local.yaml")
 
 # (tab, dotted key, label, kind, options, help text)
 # kind: text | password | combo | check | double | int
@@ -42,6 +44,11 @@ FIELDS = [
      "Used when the engine is piper, or as fallback."),
     ("Voice", "voice.wake_threshold", "Wake-word sensitivity", "double",
      (0.1, 0.9), "Lower = easier to trigger. Needs restart."),
+    ("Voice", "voice.stt_language", "Speech language", "combo",
+     ["auto", "en", "hi"],
+     "auto = detects Hindi-English mix per sentence. Needs restart."),
+    ("Voice", "voice.wake_word_cloud", "Cloud wake word", "text", None,
+     "'hello jarvis' wakes the cloud brain. Needs a trained model + restart."),
 
     ("API Keys", "secret:gemini_api_key", "Gemini API key", "password", None,
      "Online brain. Free key: aistudio.google.com/apikey"),
@@ -51,6 +58,11 @@ FIELDS = [
      None, "elevenlabs.io → API keys."),
     ("API Keys", "secret:telegram_bot_token", "Telegram bot token", "password",
      None, "Phone link. Create via @BotFather on Telegram."),
+
+    ("Phone", "telegram.enabled", "Phone link (Telegram)", "check", None,
+     "Control JARVIS from your phone. Needs restart."),
+    ("Phone", "telegram.allowed_user_ids", "Your Telegram user ID", "text",
+     None, "Numeric ID from @userinfobot. Comma-separated if several."),
 
     ("Brain", "brain.mode", "Driving brain", "combo",
      ["local_first", "cloud_first"], "Needs restart."),
@@ -84,6 +96,12 @@ FIELDS = [
     ("Safety", "presence.enabled", "Webcam presence sensor", "check", None,
      "Needs restart."),
     ("Safety", "presence.greet_on_return", "Greet on return", "check", None, ""),
+    ("Safety", "screen_watcher.enabled", "Watching eyes", "check", None,
+     "He glances at your screen and speaks up when you look stuck. "
+     "Captures stay in RAM. Needs the cloud brain + restart."),
+    ("Safety", "screen_watcher.interval_seconds", "Watching eyes: check every",
+     "int", (30, 600),
+     "Seconds between glances. Needs restart."),
 ]
 
 
@@ -202,7 +220,7 @@ class SettingsDialog(QDialog):
 
         note = QLabel(
             "Voice engine & API keys apply immediately. "
-            "Brain, HUD size and routine changes need a restart.")
+            "Everything else needs a restart.")
         note.setWordWrap(True)
         note.setStyleSheet("color: rgba(160,200,220,0.75);")
 

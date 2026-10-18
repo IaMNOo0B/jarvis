@@ -104,7 +104,8 @@ def _resolve_voice_key(cfg: dict, env_names: list[str], yaml_keys: list[str]) ->
             return val
     try:
         import yaml
-        secrets_path = os.path.join(os.path.dirname(__file__), "secrets.local.yaml")
+        from paths import user_file
+        secrets_path = user_file("secrets.local.yaml")
         if os.path.isfile(secrets_path):
             with open(secrets_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
@@ -387,7 +388,13 @@ def default_voice_path(cfg: dict) -> str:
     """Resolve the configured Piper .onnx path, creating it if missing."""
     import urllib.request
     voice = cfg.get("tts_voice", "en_GB-northern_english_male-medium")
-    voice_dir = os.path.join(os.path.dirname(__file__), cfg.get("piper_dir", "models/piper"))
+    # Installed (frozen): voices go to the writable user data dir, not the
+    # read-only bundle / PyInstaller temp folder. Dev: unchanged.
+    from paths import data_dir, frozen
+    if frozen():
+        voice_dir = os.path.join(data_dir(), "piper")
+    else:
+        voice_dir = os.path.join(os.path.dirname(__file__), cfg.get("piper_dir", "models/piper"))
     os.makedirs(voice_dir, exist_ok=True)
     path = os.path.join(voice_dir, voice + ".onnx")
     if os.path.isfile(path):

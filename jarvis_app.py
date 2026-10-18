@@ -747,6 +747,37 @@ class JarvisApp:
         return 0
 
 
+def prewarm_models() -> int:
+    """Download every first-run asset (STT model, Piper voice, wake-word
+    models), then exit. The installer runs `JARVIS.exe --prewarm` so the
+    downloads happen during installation, not on first launch."""
+    from paths import data_dir
+    print("[prewarm] user data dir:", data_dir())
+    from brain import load_config
+    cfg = load_config()
+    v = cfg.get("voice", {})
+
+    print("[prewarm] speech-to-text model ...")
+    from stt import Transcriber
+    Transcriber(model_name=v.get("stt_model", "base"),
+                language=v.get("stt_language", "auto"),
+                initial_prompt=v.get("stt_initial_prompt")).preload()
+
+    print("[prewarm] voice model ...")
+    from tts import default_voice_path
+    default_voice_path(v)
+
+    print("[prewarm] wake-word models ...")
+    from wake import WakeListener
+    words = [v.get("wake_word", "hey_jarvis")]
+    if v.get("wake_word_cloud"):
+        words.append(v["wake_word_cloud"])
+    WakeListener(wakewords=words).preload()
+
+    print("[prewarm] done — everything is on disk.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="JARVIS — movie-accurate AI assistant")
     ap.add_argument("--text", action="store_true", help="console mode, no HUD/audio")
@@ -756,7 +787,11 @@ def main() -> int:
     ap.add_argument("--mute", action="store_true", help="print replies instead of speaking")
     ap.add_argument("--test-audio", metavar="FILE.wav",
                     help="run one supervised turn from a wav file, then exit")
+    ap.add_argument("--prewarm", action="store_true",
+                    help="download all first-run assets (models, voices), then exit")
     args = ap.parse_args()
+    if args.prewarm:
+        return prewarm_models()
     app = JarvisApp(args)
     if args.no_wake:
         app.wake_on = False

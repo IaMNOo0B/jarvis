@@ -15,8 +15,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
-# Workspace root (Fan folder)
-WORKSPACE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# Workspace root. Dev: the repo parent (as before). Installed (frozen): the
+# writable per-user data dir, since the bundle location isn't writable.
+from paths import data_dir, frozen
+WORKSPACE_DIR = data_dir() if frozen() else os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 def web_search(query: str, max_results: int = 4) -> str:
     """Searches the internet for real-time information, documentation, and references."""

@@ -16,7 +16,8 @@ import os
 import sys
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SECRETS = os.path.join(BASE, "secrets.local.yaml")
+from paths import user_file
+SECRETS = user_file("secrets.local.yaml")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 GEMINI_MODEL = "gemini-3.8-flash"
 

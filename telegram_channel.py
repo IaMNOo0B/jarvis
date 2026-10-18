@@ -47,6 +47,10 @@ class TelegramChannel:
                  transcribe_voice=None, poll_timeout: int = 50, api=None,
                  on_note=None):
         self.token = token
+        # allowed_user_ids: list of ints, or a comma-separated string
+        # (the settings panel writes text).
+        if isinstance(allowed_user_ids, str):
+            allowed_user_ids = [u.strip() for u in allowed_user_ids.split(",")]
         self.allowed = {int(u) for u in (allowed_user_ids or [])
                         if str(u).strip().isdigit()}
         self.handle_text = handle_text or (lambda t: "(no handler)")
@@ -199,8 +203,8 @@ def resolve_token(cfg: dict | None = None) -> str:
         return val
     try:
         import yaml
-        here = os.path.dirname(os.path.abspath(__file__))
-        sp = os.path.join(here, "secrets.local.yaml")
+        from paths import user_file
+        sp = user_file("secrets.local.yaml")
         if os.path.isfile(sp):
             with open(sp, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}

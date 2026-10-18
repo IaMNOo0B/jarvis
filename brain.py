@@ -37,8 +37,11 @@ from persona import (CONSULT_SYSTEM_PROMPT, RESEARCH_AGAIN_PROMPT,
                      SYSTEM_PROMPT, is_hedged)
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
-SECRETS_PATH = os.path.join(os.path.dirname(__file__), "secrets.local.yaml")
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.local.yaml")
+# Secrets + panel settings are WRITTEN at runtime: next to the repo in dev,
+# %APPDATA%/JARVIS when installed (Program Files isn't writable).
+from paths import user_file
+SECRETS_PATH = user_file("secrets.local.yaml")
+SETTINGS_PATH = user_file("settings.local.yaml")
 
 
 def _deep_merge(base: dict, over: dict) -> dict:
