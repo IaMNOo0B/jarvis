@@ -109,11 +109,22 @@ class JarvisApp:
         self.brain = BrainEngine(self.cfg, services={
             "confirm_destructive": bool(self.cfg.get("safety", {}).get("confirm_destructive", True)),
         }, emit=self._on_brain_event)
+        try:
+            from logger import get_logger
+            self.log = get_logger("app")
+        except Exception:
+            import logging as _l
+            self.log = _l.getLogger("jarvis.app")
+        self.log.info("JARVIS starting (pid %d)", os.getpid())
 
     # ---------------------------------------------------------------- events
     def _say(self, text: str) -> None:
         """Thread-safe speech entry — also mirrors into the transcript."""
         print(f"\nJARVIS: {text}", flush=True)
+        try:
+            self.log.info("JARVIS: %s", text)
+        except Exception:
+            pass
         if self.bridge:
             self.bridge.exchange.emit("jarvis", text)
             self.bridge.status.emit("speaking")
@@ -122,6 +133,10 @@ class JarvisApp:
 
     def _note(self, text: str) -> None:
         print(f"  · {text}", flush=True)
+        try:
+            self.log.info("%s", text)
+        except Exception:
+            pass
         if self.bridge:
             self.bridge.exchange.emit("system", text)
 
@@ -146,10 +161,36 @@ class JarvisApp:
         from overlay import HudBridge, HudWindow, HotkeyFilter, register_hotkeys
         from PyQt6.QtCore import QTimer
 
+        # --- single-instance guard: no ghost copies fighting over the
+        # mic, hotkeys and wake-word engine. The lock lives as long as us.
+        try:
+            from PyQt6.QtCore import QLockFile
+            from paths import data_dir
+            os.makedirs(data_dir(), exist_ok=True)
+            self._instance_lock = QLockFile(
+                os.path.join(data_dir(), "jarvis.lock"))
+            if not self._instance_lock.tryLock(100):
+                self.log.warning("second instance blocked — already running")
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(
+                        None,
+                        "JARVIS is already running, sir.\n\n"
+                        "Look for the reactor icon in the system tray\n"
+                        "or press Ctrl+Alt+J to show the HUD.",
+                        "JARVIS", 0x40)
+                except Exception:
+                    pass
+                return 1
+        except Exception as e:
+            self.log.warning("instance lock unavailable: %s", e)
+            self._instance_lock = None
+
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
 
         self.bridge = HudBridge()
+        self.log.info("stage: HUD")
         self.hud = HudWindow(self.bridge, self.cfg) if self.hud_on else None
         self._setup_tray()
 
@@ -168,7 +209,9 @@ class JarvisApp:
             self.hud.show()
 
         # --- speakers & backends (load models off the GUI thread) ---
+        self.log.info("stage: audio")
         self._setup_audio()
+        self.log.info("stage: services")
         self._setup_services()
         QTimer.singleShot(100, self._warm_up)
         QTimer.singleShot(400, self._startup_routines)
@@ -194,7 +237,18 @@ class JarvisApp:
 
         print("[jarvis] running — Ctrl+Alt+J HUD, Ctrl+Alt+I interact, "
               "Ctrl+Alt+Space talk, Ctrl+Alt+S settings, Ctrl+Alt+Q quit")
+        self.log.info("stage: event loop — startup complete")
+        # startup hang watchdog is no longer needed once we're alive
+        QTimer.singleShot(10000, self._cancel_hang_watchdog)
         return self.app.exec()
+
+    def _cancel_hang_watchdog(self) -> None:
+        try:
+            import faulthandler
+            faulthandler.cancel_dump_traceback_later()
+            self.log.info("hang watchdog cancelled — event loop healthy")
+        except Exception:
+            pass
 
     # -------------------------------------------------------------- settings
     # ---------------------------------------------------------- system tray
@@ -834,6 +888,7 @@ def prewarm_models() -> int:
 
 
 def main() -> int:
+    _enable_faulthandler()  # native crashes/hangs leave a trace from here on
     ap = argparse.ArgumentParser(description="JARVIS — movie-accurate AI assistant")
     ap.add_argument("--text", action="store_true", help="console mode, no HUD/audio")
     ap.add_argument("--no-hud", action="store_true", help="run without the HUD overlay")
@@ -853,6 +908,43 @@ def main() -> int:
     return app.run()
 
 
+_fault_log_handle = None
+
+
+def _enable_faulthandler() -> None:
+    """Catch native crashes (Qt/audio drivers) and startup hangs.
+
+    faulthandler dumps Python tracebacks on segfaults — without it a Qt
+    crash is perfectly silent. The 90s watchdog fires only if startup
+    hangs; it's cancelled once the event loop is healthy.
+    """
+    global _fault_log_handle
+    try:
+        import faulthandler
+        from paths import data_dir
+        os.makedirs(data_dir(), exist_ok=True)
+        _fault_log_handle = open(
+            os.path.join(data_dir(), "jarvis_fault.log"),
+            "a", encoding="utf-8")
+        faulthandler.enable(file=_fault_log_handle)
+        faulthandler.dump_traceback_later(90, file=_fault_log_handle)
+    except Exception:
+        pass
+
+
+def _commit_hash() -> str:
+    """Best-effort commit hash for crash reports (dev checkouts)."""
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=os.path.dirname(os.path.abspath(__file__))).stdout.strip()
+        return out or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def _report_crash(exc: BaseException) -> None:
     """Last-resort crash reporter. pythonw has no console, so without this
     a startup failure is completely silent — the #1 'it doesnt launch'."""
@@ -862,7 +954,8 @@ def _report_crash(exc: BaseException) -> None:
                        "jarvis_crash.log")
     try:
         with open(log, "a", encoding="utf-8") as f:
-            f.write(f"\n===== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} =====\n")
+            f.write(f"\n===== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} "
+                    f"(commit {_commit_hash()}) =====\n")
             f.write("".join(traceback.format_exception(exc)))
     except Exception:
         pass
