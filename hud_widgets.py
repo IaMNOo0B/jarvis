@@ -11,7 +11,8 @@ import time
 from collections import deque
 
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
+                         QRadialGradient)
 from PyQt6.QtWidgets import QPlainTextEdit, QWidget
 
 CYAN = QColor(0, 216, 255)
@@ -29,24 +30,38 @@ _STATE_STYLE = {
 
 
 class ArcReactor(QWidget):
-    """The holographic core: rotating segmented rings around a pulsing heart."""
+    """The holographic core: copper coil ring, counter-rotating tick ring,
+    and a voice-reactive sin-wave ring around a pulsing reactor heart.
+
+    Own 30fps timer — a parent's update() never reaches children in Qt, so
+    the rings were static until this timer existed.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._state = "idle"
         self._level = 0.0
         self._t0 = time.monotonic()
-        self.setFixedHeight(196)
+        self.setFixedHeight(232)
+        self._timer = QTimer(self)
+        self._timer.setInterval(33)  # ~30fps
+        self._timer.timeout.connect(self._on_frame)
+        self._timer.start()
+
+    def _on_frame(self) -> None:
+        if self.isVisible():
+            self.update()
 
     def set_state(self, state: str) -> None:
         if state in _STATE_STYLE:
             self._state = state
+            self.update()
 
     def set_level(self, level: float) -> None:
         self._level = max(0.0, min(1.0, level))
 
     def sizeHint(self) -> QSize:
-        return QSize(240, 196)
+        return QSize(240, 232)
 
     def paintEvent(self, _ev):
         try:
@@ -105,18 +120,137 @@ class ArcReactor(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawEllipse(rh)
 
-        # --- core -----------------------------------------------------------
+        # --- coil ring: 10 copper trapezoids, slow rotation -----------------
+        p.save()
+        p.translate(cx, cy)
+        p.rotate((t * speed * 0.35) % 360)
+        for i in range(10):
+            p.save()
+            p.rotate(i * 36.0)
+            coil = QPainterPath()
+            coil.moveTo(68, -4.5)
+            coil.lineTo(80, -7.5)
+            coil.lineTo(80, 7.5)
+            coil.lineTo(68, 4.5)
+            coil.closeSubpath()
+            copper = QColor(198, 134, 62)
+            copper.setAlphaF(0.8 * intensity)
+            edge = QColor(base)
+            edge.setAlphaF(0.55 * intensity)
+            p.setPen(QPen(edge, 1.0))
+            p.setBrush(copper)
+            p.drawPath(coil)
+            p.restore()
+        p.restore()
+
+        # --- tick ring: dashed, counter-rotating ---------------------------
+        p.save()
+        p.translate(cx, cy)
+        p.rotate((-t * speed * 0.8) % 360)
+        tick_col = QColor(base)
+        tick_col.setAlphaF(0.45 * intensity)
+        tick_pen = QPen(tick_col, 2.0)
+        tick_pen.setStyle(Qt.PenStyle.DashLine)
+        p.setPen(tick_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(0, 0), 94, 94)
+        p.restore()
+
+        # --- voice ring: sin-wave EQ circle --------------------------------
+        # layered drifting sines (the VisualizadorAudio trick, circularised);
+        # dances with the voice while speaking, breathes when idle.
+        n_pts = 64
+        if self._state == "speaking":
+            amp = 2.0 + 10.0 * self._level
+        elif self._state == "listening":
+            amp = 5.0
+        else:
+            amp = 2.2 * (0.6 + 0.4 * math.sin(t * 1.4))
+        pts = []
+        for i in range(n_pts + 1):
+            a = 2 * math.pi * i / n_pts
+            wave = (math.sin(a * 3 + t * 4.0) * 0.5
+                    + math.sin(a * 7 - t * 6.3) * 0.3
+                    + math.sin(a * 13 + t * 9.1) * 0.2)
+            r = 102 + wave * amp
+            pts.append(QPointF(cx + math.cos(a) * r, cy + math.sin(a) * r))
+        vpath = QPainterPath()
+        vpath.moveTo(pts[0])
+        for pt in pts[1:]:
+            vpath.lineTo(pt)
+        for extra, va in ((5, 0.10), (2, 0.22), (0, 0.75)):
+            vcol = QColor(base)
+            vcol.setAlphaF(min(1.0, va * intensity))
+            vpen = QPen(vcol, 1.6 + extra)
+            vpen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(vpen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(vpath)
+
+        # --- core: layered radial glow --------------------------------------
         core_r = 20 + 7 * beat + (6 * self._level if self._state == "speaking" else 0)
-        for extra, a in ((16, 0.10), (9, 0.16), (4, 0.3), (0, 0.9)):
-            col = QColor(base)
-            col.setAlphaF(min(1.0, a * intensity))
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(col)
-            p.drawEllipse(QPointF(cx, cy), core_r + extra / 2, core_r + extra / 2)
+        grad = QRadialGradient(QPointF(cx, cy), core_r + 16)
+        hot = QColor(WHITE)
+        hot.setAlphaF(0.95 * intensity)
+        mid = QColor(base)
+        mid.setAlphaF(0.55 * intensity)
+        edge = QColor(base).darker(220)
+        edge.setAlphaF(0.0)
+        grad.setColorAt(0.0, hot)
+        grad.setColorAt(0.45, mid)
+        grad.setColorAt(1.0, edge)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(grad)
+        p.drawEllipse(QPointF(cx, cy), core_r + 16, core_r + 16)
         inner = QColor(WHITE)
         inner.setAlphaF(min(1.0, 0.5 + 0.5 * beat))
         p.setBrush(inner)
         p.drawEllipse(QPointF(cx, cy), 6, 6)
+        p.end()
+
+
+class EyeGlyph(QWidget):
+    """Privacy eye — glows cyan while the screen-watcher is reading the
+    screen, dim otherwise. Trust-building UI for the watching-eyes feature."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._watching = False
+        self.setFixedSize(30, 20)
+        self.setToolTip("Lights up while JARVIS is watching the screen")
+
+    def set_watching(self, watching: bool) -> None:
+        self._watching = bool(watching)
+        self.update()
+
+    def paintEvent(self, _ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w, h = self.width(), self.height()
+        cx, cy = w / 2, h / 2
+        active = self._watching
+        # almond outline
+        col = QColor(CYAN if active else (90, 120, 140))
+        col.setAlphaF(0.95 if active else 0.45)
+        p.setPen(QPen(col, 1.6))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        eye = QPainterPath()
+        eye.moveTo(3, cy)
+        eye.quadTo(cx, 1, w - 3, cy)
+        eye.quadTo(cx, h - 1, 3, cy)
+        p.drawPath(eye)
+        # pupil
+        p.setPen(Qt.PenStyle.NoPen)
+        pcol = QColor(CYAN if active else (70, 100, 120))
+        pcol.setAlphaF(1.0 if active else 0.5)
+        p.setBrush(pcol)
+        p.drawEllipse(QPointF(cx, cy), 3.2, 3.2)
+        # halo when watching
+        if active:
+            halo = QColor(CYAN)
+            halo.setAlphaF(0.16)
+            p.setBrush(halo)
+            p.drawEllipse(QPointF(cx, cy), 7.5, 7.5)
         p.end()
 
 
@@ -131,6 +265,8 @@ class Waveform(QWidget):
 
     def push(self, level: float) -> None:
         self._levels.append(max(0.0, min(1.0, level)))
+        if self.isVisible():
+            self.update()
 
     def paintEvent(self, _ev):
         p = QPainter(self)

@@ -14,10 +14,11 @@ import time
 
 from PyQt6.QtCore import (QAbstractNativeEventFilter, QObject, QPoint, QRectF, Qt,
                           QTimer, pyqtSignal)
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import (QColor, QFont, QPainter, QPainterPath, QPen,
+                         QRadialGradient)
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from hud_widgets import AMBER, ArcReactor, CYAN, Gauge, Transcript, Waveform
+from hud_widgets import AMBER, ArcReactor, CYAN, EyeGlyph, Gauge, Transcript, Waveform
 
 WM_HOTKEY = 0x0312
 HID_TOGGLE_VIS = 1
@@ -119,6 +120,70 @@ def unregister_hotkeys() -> None:
     for hid in (HID_TOGGLE_VIS, HID_TOGGLE_CLICK, HID_PTT, HID_QUIT,
                 HID_SETTINGS):
         user32.UnregisterHotKey(None, hid)
+
+
+class BootOverlay(QWidget):
+    """Suit-up theater: staged system checklist on launch, then gone.
+
+    Pure theater — never blocks input (mouse events pass straight through)
+    and deletes itself after the last stage.
+    """
+    STAGES = (("POWER", "arc reactor"),
+              ("SENSORS", "presence + screen"),
+              ("VOICE", "wake word + whisper"),
+              ("NETWORK", "cloud brain"),
+              ("ONLINE", "all systems nominal"))
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._stage = -1
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._timer = QTimer(self)
+        self._timer.setInterval(420)
+        self._timer.timeout.connect(self._advance)
+        self._timer.start()
+
+    def _advance(self) -> None:
+        self._stage += 1
+        if self._stage >= len(self.STAGES):
+            self._timer.stop()
+            self.hide()
+            self.deleteLater()
+            return
+        self.update()
+
+    def paintEvent(self, _ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.fillRect(self.rect(), QColor(2, 8, 16, 205))
+        cx = self.width() / 2
+        y0 = self.height() / 2 - 70
+        p.setPen(QColor(0, 216, 255, 235))
+        p.setFont(QFont("Consolas", 13))
+        p.drawText(QRectF(0, y0, self.width(), 30),
+                   Qt.AlignmentFlag.AlignCenter, "INITIALIZE J.A.R.V.I.S.")
+        p.setFont(QFont("Consolas", 10))
+        y = y0 + 42
+        for i, (name, desc) in enumerate(self.STAGES):
+            if i > self._stage:
+                break
+            done = i < self._stage
+            mark = "✓" if done else "▸"
+            col = (QColor(120, 255, 180, 225) if done
+                   else QColor(0, 216, 255, 235))
+            p.setPen(col)
+            p.drawText(QRectF(cx - 140, y, 280, 22),
+                       Qt.AlignmentFlag.AlignLeft, f"{mark} {name:8s}  {desc}")
+            y += 24
+        frac = max(0.0, min(1.0, (self._stage + 1) / len(self.STAGES)))
+        bar = QRectF(cx - 140, y + 8, 280, 4)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 30))
+        p.drawRoundedRect(bar, 2, 2)
+        p.setBrush(QColor(0, 216, 255, 205))
+        p.drawRoundedRect(
+            QRectF(bar.left(), bar.top(), bar.width() * frac, 4), 2, 2)
+        p.end()
 
 
 class HudWindow(QWidget):
@@ -225,11 +290,20 @@ class HudWindow(QWidget):
         self.model_lbl = QLabel("local core")
         self.model_lbl.setFont(QFont("Segoe UI", 8))
         self.model_lbl.setStyleSheet("color: rgba(150,210,235,0.55); background: transparent;")
+        self.eye = EyeGlyph()
+        self.eye.set_watching(bool(cfg.get("screen_watcher", {}).get("enabled", False)))
         footer.addWidget(self.presence_lbl)
         footer.addStretch(1)
+        footer.addWidget(self.eye)
         footer.addWidget(self.model_lbl)
         root.addLayout(footer)
         self._update_clock()
+
+        # suit-up sequence on top of everything (deletes itself when done)
+        self._boot = BootOverlay(self)
+        self._boot.setGeometry(self.rect())
+        self._boot.raise_()
+        self._boot.show()
 
     def _wire_bridge(self) -> None:
         self.bridge.status.connect(self.set_status)
@@ -353,6 +427,32 @@ class HudWindow(QWidget):
         p.setPen(QPen(QColor(0, 216, 255, 70), 2.0))
         p.drawLine(int(body.left() + 18), int(body.top() + 34),
                    int(body.right() - 18), int(body.top() + 34))
+        # scanlines — the hologram pass (1px lines, ~6% black)
+        p.setPen(QPen(QColor(0, 0, 0, 16), 1.0))
+        ww, hh = self.width(), self.height()
+        for yy in range(8, hh - 8, 3):
+            p.drawLine(8, yy, ww - 8, yy)
+        # vignette — darken the corners
+        vg = QRadialGradient(QPointF(ww / 2, hh / 2), max(ww, hh) * 0.62)
+        vg.setColorAt(0.0, QColor(0, 0, 0, 0))
+        vg.setColorAt(1.0, QColor(0, 0, 0, 110))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(vg)
+        p.drawRoundedRect(QRectF(rect), 18, 18)
+        # corner brackets — the sci-fi HUD grammar
+        bl = 26.0
+        p.setPen(QPen(QColor(0, 216, 255, 170), 2.2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        r = QRectF(rect)
+        for x, y, dx, dy in ((r.left(), r.top(), 1, 1),
+                             (r.right(), r.top(), -1, 1),
+                             (r.left(), r.bottom(), 1, -1),
+                             (r.right(), r.bottom(), -1, -1)):
+            bracket = QPainterPath()
+            bracket.moveTo(x + dx * bl, y)
+            bracket.lineTo(x, y)
+            bracket.lineTo(x, y + dy * bl)
+            p.drawPath(bracket)
         p.end()
 
     # ------------------------------------------------------------------ input
@@ -380,6 +480,9 @@ class HudWindow(QWidget):
         self._click_through = bool(hcfg.get("click_through", self._click_through))
         self._apply_click_through()
         self._place()
+        if hasattr(self, "eye"):
+            self.eye.set_watching(
+                bool(cfg.get("screen_watcher", {}).get("enabled", False)))
 
     def _apply_click_through(self) -> None:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,
