@@ -92,6 +92,7 @@ class JarvisApp:
         self.engine = None       # audio engine
         self.wake = None
         self.wake_word_cloud = None  # "hello_jarvis" -> cloud brain for the turn
+        self.telegram = None  # phone link channel (Phase 5)
         self.system_actions = None
 
         self._stop = threading.Event()
@@ -335,6 +336,43 @@ class JarvisApp:
             self.brain.services["presence"] = self.presence
             if self.hud:
                 self.hud.presence_lbl.setText("◌ searching…")
+
+        self._setup_channels()
+
+    def _setup_channels(self) -> None:
+        """Phone link: Telegram channel (Phase 5). Idempotent."""
+        if self.telegram is not None:
+            return
+        t = self.cfg.get("telegram", {}) or {}
+        if not t.get("enabled"):
+            return
+        from telegram_channel import TelegramChannel, resolve_token
+        token = resolve_token(self.cfg.get("voice", {}))
+        if not token:
+            self._note("telegram enabled but no bot token — "
+                       "set it in Settings > API Keys")
+            return
+        self.telegram = TelegramChannel(
+            token=token,
+            allowed_user_ids=t.get("allowed_user_ids", []),
+            handle_text=self._telegram_reply,
+            transcribe_voice=(lambda a: self.transcriber.transcribe(a))
+                             if self.transcriber else None,
+            poll_timeout=int(t.get("poll_timeout_seconds", 50)),
+            on_note=self._note,
+        )
+        self.telegram.start()
+        self._note("telegram channel armed")
+
+    def _telegram_reply(self, text: str) -> str:
+        """One Telegram message in -> brain -> reply text out."""
+        try:
+            result = self.brain.respond(text)
+        except Exception as e:
+            return f"Forgive me, sir — something went wrong: {e}"
+        if result.error == "busy":
+            return "One moment, sir — I'm in the middle of something."
+        return result.reply or "(no reply)"
 
     def _warm_up(self) -> None:
         """Load whisper + wake word + voice model without freezing the GUI."""

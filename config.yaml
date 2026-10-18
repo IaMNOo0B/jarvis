@@ -66,6 +66,16 @@ voice:
   max_utterance_seconds: 30
   listen_timeout_seconds: 10         # give up if no speech starts after wake word
 
+# Phone link (Phase 5) — control JARVIS from Telegram.
+#   1. @BotFather on Telegram -> /newbot -> token into Settings > API Keys
+#      ("Telegram bot token"), or TELEGRAM_BOT_TOKEN env var.
+#   2. allowed_user_ids: your numeric Telegram ID (@userinfobot). Only these
+#      get answers; everyone else is ignored.
+telegram:
+  enabled: false
+  allowed_user_ids: []               # e.g. [123456789]
+  poll_timeout_seconds: 50
+
 hud:
   enabled: true
   width: 470

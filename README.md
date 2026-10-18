@@ -84,6 +84,9 @@ environment variable works too. Without a key everything still runs local.
 - **Proactive**: time-of-day greeting when you sit down, morning/evening
   briefings (weather + headlines + system), spoken reminders
 - **Presence**: webcam greets you when you arrive and when you return
+- **Phone link**: Telegram bot — text him or send a voice note from your
+  phone; his brain answers. `@BotFather` → token in Settings > API Keys,
+  your user ID in `telegram.allowed_user_ids`, `telegram.enabled: true`.
 
 ## Configuration — `config.yaml`
 

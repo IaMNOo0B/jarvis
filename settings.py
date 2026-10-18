@@ -49,6 +49,8 @@ FIELDS = [
      "fish.audio → API keys."),
     ("API Keys", "secret:elevenlabs_api_key", "ElevenLabs API key", "password",
      None, "elevenlabs.io → API keys."),
+    ("API Keys", "secret:telegram_bot_token", "Telegram bot token", "password",
+     None, "Phone link. Create via @BotFather on Telegram."),
 
     ("Brain", "brain.mode", "Driving brain", "combo",
      ["local_first", "cloud_first"], "Needs restart."),
