@@ -889,6 +889,7 @@ def prewarm_models() -> int:
 
 def main() -> int:
     _enable_faulthandler()  # native crashes/hangs leave a trace from here on
+    sys.excepthook = _excepthook  # Qt event-loop crashes land in the crash log
     ap = argparse.ArgumentParser(description="JARVIS — movie-accurate AI assistant")
     ap.add_argument("--text", action="store_true", help="console mode, no HUD/audio")
     ap.add_argument("--no-hud", action="store_true", help="run without the HUD overlay")
@@ -943,6 +944,21 @@ def _commit_hash() -> str:
         return out or "unknown"
     except Exception:
         return "unknown"
+
+
+def _excepthook(exc_type, exc_value, exc_tb) -> None:
+    """Catch-all for unhandled exceptions, including Qt event-loop crashes.
+    Without this, a paintEvent failure dies silently under pythonw."""
+    import traceback
+    try:
+        exc = exc_value if isinstance(exc_value, BaseException) else RuntimeError(
+            "".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        _report_crash(exc)
+    except Exception:
+        pass
+    # Don't swallow KeyboardInterrupt
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 
 def _report_crash(exc: BaseException) -> None:
