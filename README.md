@@ -91,6 +91,8 @@ environment variable works too. Without a key everything still runs local.
   you look stuck — "I see you're fighting that error, sir." Captures stay
   in RAM, never touch disk. Needs the cloud brain.
   `screen_watcher.enabled: true`.
+- **Everyday tools**: clock, calculator, timers, weather, headlines,
+  dictionary, English↔Hindi translator, decisions — 30 tools and counting.
 
 ## Configuration — `config.yaml`
 

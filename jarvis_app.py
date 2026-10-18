@@ -324,6 +324,8 @@ class JarvisApp:
         self.scheduler.start()
         self.scheduler.start_daily_routines()
         self.brain.services["scheduler"] = self.scheduler
+        # Let skills announce things (e.g. the everyday timer's "done, sir").
+        self.brain.services["speak"] = self._say
 
         self.presence = None
         if self.cfg.get("presence", {}).get("enabled", True) and not self.args.no_camera:
