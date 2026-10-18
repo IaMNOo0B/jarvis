@@ -798,5 +798,34 @@ def main() -> int:
     return app.run()
 
 
+def _report_crash(exc: BaseException) -> None:
+    """Last-resort crash reporter. pythonw has no console, so without this
+    a startup failure is completely silent — the #1 'it doesnt launch'."""
+    import datetime
+    import traceback
+    log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "jarvis_crash.log")
+    try:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"\n===== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} =====\n")
+            f.write("".join(traceback.format_exception(exc)))
+    except Exception:
+        pass
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            f"JARVIS couldn't start:\n\n{exc}\n\n"
+            f"Details are in jarvis_crash.log (next to the app).\n"
+            f"Most common fix: double-click Install_JARVIS.bat again.",
+            "JARVIS", 0x10)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BaseException as e:  # noqa: BLE001 — last resort, must not fail
+        _report_crash(e)
+        sys.exit(1)

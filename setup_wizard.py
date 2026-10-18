@@ -188,12 +188,28 @@ def main() -> int:
     def on_launch():
         import os
         import subprocess
+        import time
         app = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "jarvis_app.py")
         try:
-            subprocess.Popen([sys.executable, app],
-                             cwd=os.path.dirname(app))
-            root.destroy()
+            p = subprocess.Popen([sys.executable, app],
+                                 cwd=os.path.dirname(app))
+            time.sleep(4)  # give it a moment; freeze here is fine, one-time
+            if p.poll() is not None:
+                # Died instantly — surface the crash log instead of silence.
+                detail = ""
+                log = os.path.join(os.path.dirname(app), "jarvis_crash.log")
+                try:
+                    with open(log, encoding="utf-8") as f:
+                        detail = f.read()[-600:]
+                except Exception:
+                    pass
+                messagebox.showerror(
+                    "JARVIS Setup",
+                    "JARVIS closed right away, sir.\n\n"
+                    + (detail or "No details recorded — run Install again."))
+            else:
+                root.destroy()
         except Exception as e:
             messagebox.showerror("JARVIS Setup", f"Couldn't launch: {e}")
 
