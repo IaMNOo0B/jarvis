@@ -32,14 +32,17 @@ brain:
     timeout: 60
     consult_budget: 2        # cross-brain consultations allowed per turn
     consult_rounds: 3        # tool rounds a consulted brain may use
-    # Backup brain (Groq — free, no credit card): when the primary cloud
-    # brain fails, JARVIS retries once here before giving up. Key via
-    # GROQ_API_KEY env or Settings → API Keys. Model auto-detects from the
-    # endpoint (free lineups rotate), or set one explicitly.
+    # Backup brains (free, no credit card): tried IN ORDER when the primary
+    # cloud brain fails. Keys: comma-separated for rotation, via env or
+    # Settings → API Keys. Model auto-detects from each endpoint (free
+    # lineups rotate), or set one explicitly.
     fallback:
-      base_url: "https://api.groq.com/openai/v1"
-      api_key_env: "GROQ_API_KEY"
-      model: ""
+      - base_url: "https://api.groq.com/openai/v1"
+        api_key_env: "GROQ_API_KEY"      # or groq_api_key in Settings
+        model: ""
+      - base_url: "https://openrouter.ai/api/v1"
+        api_key_env: "OPENROUTER_API_KEY"  # or openrouter_api_key in Settings
+        model: ""
 
 voice:
   enabled: true

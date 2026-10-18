@@ -246,14 +246,26 @@ class BrainEngine:
         self._consult_depth = 0
         self._consult_used = 0
         self._turn_mode = None  # per-turn override via respond(force_mode=...)
-        # Backup brain (Groq — free, no card): tried once when the primary
-        # cloud brain fails. Key via GROQ_API_KEY env or Settings → API Keys.
-        fb = cloud.get("fallback", {}) or {}
-        self.fallback_base = (fb.get("base_url")
-                              or "https://api.groq.com/openai/v1").rstrip("/")
-        self.fallback_key = self._resolve_fallback_key(fb)
-        self.fallback_model_cfg = (fb.get("model") or "").strip()
-        self._fallback_model_cache: str | None = None
+        # Backup brains (free, no card): tried IN ORDER when the primary
+        # cloud brain fails. Each entry: base_url, keys (comma-separated for
+        # rotation), model (empty = auto-detect). Keys via env or Settings.
+        fb_cfg = cloud.get("fallback", {}) or {}
+        fb_list = fb_cfg if isinstance(fb_cfg, list) else [fb_cfg]
+        self.fallbacks: list[dict] = []
+        for fb in fb_list:
+            if not isinstance(fb, dict):
+                continue
+            keys = self._resolve_fallback_keys(fb)
+            if not keys:
+                continue
+            self.fallbacks.append({
+                "base": (fb.get("base_url")
+                         or "https://api.groq.com/openai/v1").rstrip("/"),
+                "keys": keys,
+                "model_cfg": (fb.get("model") or "").strip(),
+                "model_cache": None,
+                "key_idx": 0,
+            })
 
         self.services = services or {}
         self.emit = emit or (lambda kind, payload: None)
@@ -272,39 +284,51 @@ class BrainEngine:
 
     @property
     def fallback_configured(self) -> bool:
-        return bool(self.fallback_base and self.fallback_key)
+        return bool(self.fallbacks)
 
-    def _resolve_fallback_key(self, fb: dict) -> str:
-        for var in dict.fromkeys(
-                [fb.get("api_key_env") or "", "GROQ_API_KEY"]):
+    def _resolve_fallback_keys(self, fb: dict) -> list:
+        """All keys for one fallback entry. Comma-separated = rotation."""
+        out: list[str] = []
+        for var in dict.fromkeys([fb.get("api_key_env") or "", "GROQ_API_KEY",
+                                  "OPENROUTER_API_KEY"]):
             val = os.environ.get(var, "")
-            if val:
-                return val
+            out += [k.strip() for k in val.split(",") if k.strip()]
         try:
             if os.path.isfile(SECRETS_PATH):
                 with open(SECRETS_PATH, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f) or {}
-                for k in ("groq_api_key", "cloud_api_key", "api_key"):
-                    val = str(data.get(k) or "").strip()
-                    if val:
-                        return val
+                base = fb.get("base_url") or ""
+                names = []
+                if "groq" in base:
+                    names.append("groq_api_key")
+                if "openrouter" in base:
+                    names.append("openrouter_api_key")
+                names += ["groq_api_key", "openrouter_api_key",
+                          "cloud_api_key", "api_key"]
+                for k in dict.fromkeys(names):
+                    val = data.get(k)
+                    if isinstance(val, list):
+                        out += [str(x).strip() for x in val if str(x).strip()]
+                    elif val:
+                        out += [s.strip() for s in str(val).split(",")
+                                if s.strip()]
         except Exception:
             pass
-        return ""
+        return list(dict.fromkeys(out))
 
-    def _get_fallback_model(self) -> str:
-        """Model for the backup brain. Config wins; otherwise ask the
+    def _get_fallback_model(self, fe: dict) -> str:
+        """Model for one backup brain. Config wins; otherwise ask the
         endpoint what it has (free lineups rotate); last resort hardcoded."""
-        if self._fallback_model_cache:
-            return self._fallback_model_cache
-        if self.fallback_model_cfg:
-            self._fallback_model_cache = self.fallback_model_cfg
-            return self._fallback_model_cache
+        if fe["model_cache"]:
+            return fe["model_cache"]
+        if fe["model_cfg"]:
+            fe["model_cache"] = fe["model_cfg"]
+            return fe["model_cache"]
         try:
             import requests
             r = requests.get(
-                f"{self.fallback_base}/models",
-                headers={"Authorization": f"Bearer {self.fallback_key}"},
+                f"{fe['base']}/models",
+                headers={"Authorization": f"Bearer {fe['keys'][0]}"},
                 timeout=15)
             ids = [m.get("id") for m in r.json().get("data", [])
                    if m.get("id")]
@@ -312,12 +336,31 @@ class BrainEngine:
             ids = [i for i in ids
                    if not any(b in i.lower() for b in bad)]
             pick = next((i for i in ids
-                         if "oss" in i.lower() or "instruct" in i.lower()),
+                         if "oss" in i.lower() or "instruct" in i.lower()
+                         or ":free" in i.lower()),
                         None)
-            self._fallback_model_cache = pick or (ids[0] if ids else "")
+            fe["model_cache"] = pick or (ids[0] if ids else "")
         except Exception:
-            self._fallback_model_cache = ""
-        return self._fallback_model_cache or "llama-3.3-70b-versatile"
+            fe["model_cache"] = ""
+        return fe["model_cache"] or "llama-3.3-70b-versatile"
+
+    def _try_fallback(self, fe: dict, payload: dict):
+        """Try one backup provider, rotating keys on 429 (quota) errors."""
+        last = None
+        n = len(fe["keys"])
+        for i in range(n):
+            idx = (fe["key_idx"] + i) % n
+            fmsg, ferr = self._post_chat(
+                fe["base"], self._get_fallback_model(fe),
+                fe["keys"][idx], payload)
+            if fmsg is not None:
+                fe["key_idx"] = idx  # stick with the working key
+                return fmsg, None
+            last = ferr
+            if "429" not in str(ferr):
+                break  # not quota — move to the next provider
+        fe["key_idx"] = (fe["key_idx"] + 1) % n
+        return None, f"{fe['base']} failed ({last})"
 
     # ------------------------------------------------------ provider defaults
     def _resolve_base(self, cloud: dict) -> str:
@@ -562,15 +605,18 @@ class BrainEngine:
                 payload["tool_choice"] = "auto"
             msg, err = self._post_chat(self.cloud_base, self.cloud_model,
                                        self.cloud_key, payload)
-            if msg is not None or not self.fallback_configured:
-                return msg, err
-            # Primary failed — one shot at the backup brain.
-            fmsg, ferr = self._post_chat(
-                self.fallback_base, self._get_fallback_model(),
-                self.fallback_key, payload)
-            if fmsg is not None:
-                return fmsg, None
-            return None, f"primary brain failed ({err}); backup failed ({ferr})"
+            if msg is not None:
+                return msg, None
+            # Primary failed — walk the backup chain in order.
+            errors = [f"primary ({err})"]
+            for fe in self.fallbacks:
+                fmsg, ferr = self._try_fallback(fe, payload)
+                if fmsg is not None:
+                    return fmsg, None
+                errors.append(str(ferr))
+            if not self.fallbacks:
+                return None, err
+            return None, "all brains failed: " + "; ".join(errors)
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 
