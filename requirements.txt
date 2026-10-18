@@ -26,6 +26,10 @@ PyQt6                      # HUD overlay
 torch
 transformers
 
+# --- Ghost browser skill (Phase 2) ---
+playwright                   # invisible headless Chromium for browser_* tools
+# One-time after pip install:  playwright install chromium   (downloads the browser)
+
 # --- PyInstaller build-time dep ---
 # Needed only to BUILD the single-file JARVIS.exe on a Windows PC.
 # Not required on the machine that runs JARVIS.exe.
