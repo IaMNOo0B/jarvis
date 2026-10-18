@@ -99,6 +99,7 @@ class JarvisApp:
         self._shutdown_evt = threading.Event()
         self._greeted_once = False
         self._inject_queue = []
+        self._settings_open = False
 
         # brain with a HUD-aware emitter
         self.brain = BrainEngine(self.cfg, services={
@@ -154,6 +155,7 @@ class JarvisApp:
         self.bridge.cmd_clickthrough.connect(lambda: self.hud.toggle_click_through() if self.hud else None)
         self.bridge.cmd_ptt.connect(self._on_ptt)
         self.bridge.cmd_quit.connect(self.app.quit)
+        self.bridge.cmd_settings.connect(self._open_settings)
         self.app.aboutToQuit.connect(self._cleanup)
 
         if self.hud:
@@ -186,8 +188,57 @@ class JarvisApp:
         threading.Thread(target=self._gauge_feeder, daemon=True, name="jarvis-gauges").start()
 
         print("[jarvis] running — Ctrl+Alt+J HUD, Ctrl+Alt+I interact, "
-              "Ctrl+Alt+Space talk, Ctrl+Alt+Q quit")
+              "Ctrl+Alt+Space talk, Ctrl+Alt+S settings, Ctrl+Alt+Q quit")
         return self.app.exec()
+
+    # -------------------------------------------------------------- settings
+    def _open_settings(self) -> None:
+        """Open the settings panel (from hotkey or HUD gear button)."""
+        if self._settings_open:
+            return
+        self._settings_open = True
+        try:
+            from settings import open_settings_dialog
+            if open_settings_dialog(self.cfg, self.hud):
+                self._apply_settings()
+        except Exception as e:
+            self._note(f"settings panel failed: {e}")
+        finally:
+            self._settings_open = False
+
+    def _apply_settings(self) -> None:
+        """Apply freshly saved settings. Voice + HUD apply live; the brain
+        picks the rest up on restart (the dialog says so)."""
+        from brain import load_config
+        fresh = load_config()
+        self.cfg.clear()
+        self.cfg.update(fresh)  # in place — BrainEngine keeps seeing updates
+        vcfg = self.cfg.get("voice", {})
+
+        # voice engine + API keys apply live: rebuild the speaker
+        if self.voice_on and not self.mute and self.speaker is not None:
+            try:
+                from tts import create_speaker
+                old = self.speaker
+                self.speaker = create_speaker(vcfg)
+                try:
+                    old.stop()
+                except Exception:
+                    pass
+                self._note("voice settings applied")
+            except Exception as e:
+                self._note(f"voice rebuild failed: {e}")
+
+        # HUD corner/size/click-through apply live
+        if self.hud is not None:
+            try:
+                self.hud.apply_config(self.cfg)
+            except Exception as e:
+                self._note(f"HUD apply failed: {e}")
+
+        if self.bridge:
+            self.bridge.toast.emit(
+                "Settings saved — voice & HUD live · restart for brain changes")
 
     def _model_label(self) -> str:
         name = self.cfg.get("brain", {}).get("local_model", "local")

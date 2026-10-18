@@ -15,7 +15,7 @@ import time
 from PyQt6.QtCore import (QAbstractNativeEventFilter, QObject, QPoint, QRectF, Qt,
                           QTimer, pyqtSignal)
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from hud_widgets import AMBER, ArcReactor, CYAN, Gauge, Transcript, Waveform
 
@@ -24,6 +24,7 @@ HID_TOGGLE_VIS = 1
 HID_TOGGLE_CLICK = 2
 HID_PTT = 3
 HID_QUIT = 4
+HID_SETTINGS = 5
 
 _STATUS_UI = {
     "idle":         ("Standby", QColor(140, 220, 255), "idle"),
@@ -48,6 +49,7 @@ class HudBridge(QObject):
     cmd_clickthrough = pyqtSignal()          # hotkey -> toggle mouse pass-through
     cmd_ptt = pyqtSignal()                   # hotkey -> push-to-talk
     cmd_quit = pyqtSignal()                  # worker thread -> exit the app
+    cmd_settings = pyqtSignal()              # hotkey / gear -> settings panel
 
 
 class HotkeyFilter(QAbstractNativeEventFilter):
@@ -84,6 +86,8 @@ class HotkeyFilter(QAbstractNativeEventFilter):
                     self.bridge.cmd_ptt.emit()
                 elif wid == HID_QUIT:
                     self.bridge.cmd_quit.emit()
+                elif wid == HID_SETTINGS:
+                    self.bridge.cmd_settings.emit()
                 return (True, 0)
         except Exception:
             pass
@@ -91,7 +95,8 @@ class HotkeyFilter(QAbstractNativeEventFilter):
 
 
 def register_hotkeys() -> bool:
-    """System-wide: Ctrl+Alt+J (HUD), Ctrl+Alt+I (interact), Ctrl+Alt+Space (talk)."""
+    """System-wide: Ctrl+Alt+J (HUD), Ctrl+Alt+I (interact), Ctrl+Alt+Space (talk),
+    Ctrl+Alt+S (settings), Ctrl+Alt+Q (quit)."""
     user32 = ctypes.windll.user32
     MOD_CONTROL, MOD_ALT, MOD_NOREPEAT = 0x0002, 0x0001, 0x4000
     combos = [
@@ -99,6 +104,7 @@ def register_hotkeys() -> bool:
         (HID_TOGGLE_CLICK, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("I")),
         (HID_PTT, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x20),
         (HID_QUIT, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("Q")),
+        (HID_SETTINGS, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("S")),
     ]
     ok = True
     for hid, mods, vk in combos:
@@ -110,7 +116,8 @@ def register_hotkeys() -> bool:
 
 def unregister_hotkeys() -> None:
     user32 = ctypes.windll.user32
-    for hid in (HID_TOGGLE_VIS, HID_TOGGLE_CLICK, HID_PTT, HID_QUIT):
+    for hid in (HID_TOGGLE_VIS, HID_TOGGLE_CLICK, HID_PTT, HID_QUIT,
+                HID_SETTINGS):
         user32.UnregisterHotKey(None, hid)
 
 
@@ -171,6 +178,15 @@ class HudWindow(QWidget):
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(self.clock)
+        self.settings_btn = QPushButton("⚙")
+        self.settings_btn.setFont(QFont("Segoe UI", 11))
+        self.settings_btn.setFlat(True)
+        self.settings_btn.setToolTip("Settings (Ctrl+Alt+S)")
+        self.settings_btn.setStyleSheet("color: rgba(160,225,255,0.85);"
+                                        " background: transparent; border: none;")
+        self.settings_btn.clicked.connect(
+            lambda: self.bridge.cmd_settings.emit())
+        header.addWidget(self.settings_btn)
         root.addLayout(header)
 
         self.reactor = ArcReactor()
@@ -354,6 +370,16 @@ class HudWindow(QWidget):
         mode = "mouse pass-through ON — Ctrl+Alt+I to interact" if self._click_through \
             else "interactive — drag me, Ctrl+Alt+I to pass through"
         self.bridge.exchange.emit("system", f"HUD {mode}")
+
+    def apply_config(self, cfg: dict) -> None:
+        """Live-apply HUD settings from the settings panel (no restart)."""
+        hcfg = cfg.get("hud", {})
+        self._corner = hcfg.get("corner", self._corner)
+        self.setFixedSize(int(hcfg.get("width", self.width())),
+                          int(hcfg.get("height", self.height())))
+        self._click_through = bool(hcfg.get("click_through", self._click_through))
+        self._apply_click_through()
+        self._place()
 
     def _apply_click_through(self) -> None:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents,

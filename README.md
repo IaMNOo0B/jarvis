@@ -64,6 +64,7 @@ environment variable works too. Without a key everything still runs local.
 - **Ctrl+Alt+J** — show/hide the HUD
 - **Ctrl+Alt+I** — toggle mouse pass-through (turn off so you can drag the HUD)
 - **Ctrl+Alt+Space** — start/stop a dictated turn
+- **Ctrl+Alt+S** — settings panel (or the ⚙ button on the HUD)
 - **Ctrl+Alt+Q** — quit JARVIS (also: `python jarvis_app.py --text` then `quit`)
 - Say **"Jarvis"** while he's speaking to interrupt (barge-in)
 
@@ -88,6 +89,11 @@ environment variable works too. Without a key everything still runs local.
 
 Everything lives there: model name, voice, wake threshold, briefing times,
 HUD position/size, presence settings, safety flags.
+
+Prefer clicking to typing? Press **Ctrl+Alt+S** (or the ⚙ on the HUD) for the
+settings panel — API keys, voice engine, brain, HUD, routines and safety, all
+in one place. Keys land in `secrets.local.yaml` (never committed); the rest
+becomes overrides in `settings.local.yaml`, merged over `config.yaml`.
 
 ### Other online providers
 

@@ -38,6 +38,17 @@ from persona import (CONSULT_SYSTEM_PROMPT, RESEARCH_AGAIN_PROMPT,
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 SECRETS_PATH = os.path.join(os.path.dirname(__file__), "secrets.local.yaml")
+SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.local.yaml")
+
+
+def _deep_merge(base: dict, over: dict) -> dict:
+    """Recursively merge `over` into `base` (in place)."""
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
 
 # ------------------------------------------------------- cross-brain consult
 # Each brain only ever sees the tool that points at the OTHER brain.
@@ -103,7 +114,18 @@ CONSULT_LOCAL_TOOL = {
 # --------------------------------------------------------------------- config
 def load_config(path: str = CONFIG_PATH) -> dict:
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        cfg = yaml.safe_load(f) or {}
+    # User overrides from the settings panel (settings.local.yaml, gitignored)
+    # are deep-merged over the shipped config.yaml defaults.
+    try:
+        if os.path.isfile(SETTINGS_PATH):
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                over = yaml.safe_load(f) or {}
+            if isinstance(over, dict):
+                _deep_merge(cfg, over)
+    except Exception:
+        pass
+    return cfg
 
 
 # ------------------------------------------------------------- tool executor
