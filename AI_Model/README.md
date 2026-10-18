@@ -7,7 +7,7 @@ webcam presence greetings — and a brain that **never** answers "I don't know".
 ## Quick start
 
 ```powershell
-cd AI_Model
+# run these from the repo root (where you cloned it)
 python setup_models.py        # one-shot: deps + models + desktop icon
 python jarvis_app.py          # the full experience (HUD + voice + camera)
 ```
@@ -102,7 +102,7 @@ Without a key, everything still works locally — research tools cover the gap.
 ## Layout
 
 ```
-AI_Model/
+.  (repo root — run the app from here)
   jarvis_app.py     entry point + voice state machine
   brain.py          hybrid tool-loop orchestrator (shared by all modes)
   persona.py        the JARVIS system prompt (butler voice + never-say-idk)

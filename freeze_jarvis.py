@@ -2,7 +2,7 @@
 
 This is the PyInstaller one-file entry point. On a Windows PC with NO Python
 installed, double-clicking the resulting JARVIS.exe is enough: it unpacks
-itself, creates its models folder under %APPDATA%\JARVIS\models if needed,
+itself, creates its models folder under %APPDATA%\\JARVIS\\models if needed,
 downloads the offline voice/whisper/wake assets on first run, creates the
 desktop icon, and boots the full JARVIS experience (HUD + voice + webcam +
 brain).
@@ -39,11 +39,34 @@ def _frozen_root() -> Path:
     return Path.cwd()
 
 
+def _repo_root() -> Path:
+    '''Locate the app sources (the dir containing jarvis_app.py).
+
+    The sources live at the repo root; this entry point may sit at the root
+    or inside AI_Model/ (the PyInstaller build dir). Walk up until found.
+    '''
+    here = Path(__file__).resolve().parent
+    for cand in (here, here.parent):
+        if (cand / "jarvis_app.py").is_file():
+            return cand
+    return here
+
+
 def _resource_path(rel: str) -> Path:
     '''Resolve a bundled resource shipped via --add-data / spec Analysis.'''
     root = _frozen_root()
     p = root / rel
     if p.exists():
         return p
-    # When running unfrozen (from source), the project root is AI_Model/.
-    return Path(__file__).resolve().parent / rel
+    # Unfrozen (running from source): resources live beside the app sources.
+    return _repo_root() / rel
+
+
+if __name__ == "__main__":
+    # Make the app sources importable no matter where this entry point lives
+    # (repo root or AI_Model/), then launch the full JARVIS experience.
+    _rr = str(_repo_root())
+    if _rr not in sys.path:
+        sys.path.insert(0, _rr)
+    from jarvis_app import main as _jarvis_main
+    sys.exit(_jarvis_main())

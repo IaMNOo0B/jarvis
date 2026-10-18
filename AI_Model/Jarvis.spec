@@ -144,6 +144,11 @@ hidden_imports = [
 
 main_script = os.path.join(os.path.dirname(__file__), "freeze_jarvis.py")
 
+# The app sources (jarvis_app.py, brain.py, ...) live at the REPO ROOT, one
+# level above this spec. Put it on the module search path so Analysis bundles
+# them into the frozen app.
+_repo_root = str(Path(__file__).resolve().parent.parent)
+
 # ---------------------------------------------------------------- data + binaries
 APP = {
     "script": main_script,
@@ -175,6 +180,7 @@ except Exception:
 
 a = Analysis(
     ["freeze_jarvis.py"],
+    pathex=[_repo_root],
     patcher=libraries,
     binaries=binaries if binaries else None,
     datas=data_files if data_files else None,
