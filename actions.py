@@ -17,14 +17,48 @@ from ddgs import DDGS
 
 # Workspace root. Dev: the repo parent (as before). Installed (frozen): the
 # writable per-user data dir, since the bundle location isn't writable.
-from paths import data_dir, frozen
+from paths import data_dir, frozen, user_file
 WORKSPACE_DIR = data_dir() if frozen() else os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-def web_search(query: str, max_results: int = 4) -> str:
-    """Searches the internet for real-time information, documentation, and references."""
+
+def _secret(name: str) -> str:
+    """One key from secrets.local.yaml (no Qt import — actions runs headless)."""
     try:
-        ddgs = DDGS()
-        results = list(ddgs.text(query, max_results=max_results))
+        import yaml
+        with open(user_file("secrets.local.yaml"), encoding="utf-8") as f:
+            return str((yaml.safe_load(f) or {}).get(name) or "").strip()
+    except Exception:
+        return ""
+
+
+def _tavily_search(query: str, max_results: int = 4) -> list | None:
+    """Tavily agent-search. Returns [{title, href, body}] or None (no key/fail)."""
+    key = _secret("tavily_api_key")
+    if not key:
+        return None
+    try:
+        r = requests.post(
+            "https://api.tavily.com/search",
+            json={"api_key": key, "query": query, "max_results": max_results,
+                  "include_answer": False},
+            timeout=15, headers={"User-Agent": "curl/8"})
+        out = []
+        for x in r.json().get("results") or []:
+            if x.get("title"):
+                out.append({"title": x["title"], "href": x.get("url", ""),
+                            "body": (x.get("content") or "")[:400]})
+        return out or None
+    except Exception:
+        return None
+
+def web_search(query: str, max_results: int = 4) -> str:
+    """Searches the internet for real-time information, documentation, and references.
+    Tavily (agent-grade) when a key is set, DuckDuckGo otherwise."""
+    try:
+        results = _tavily_search(query, max_results)
+        if results is None:
+            ddgs = DDGS()
+            results = list(ddgs.text(query, max_results=max_results))
         if not results:
             return f"No web search results found for query: '{query}'"
         
@@ -50,8 +84,10 @@ def parallel_multi_search(queries: list, max_results_per_query: int = 3) -> str:
 
     def _search_worker(q):
         try:
-            ddgs = DDGS()
-            items = list(ddgs.text(q, max_results=max_results_per_query))
+            items = _tavily_search(q, max_results_per_query)
+            if items is None:
+                ddgs = DDGS()
+                items = list(ddgs.text(q, max_results=max_results_per_query))
             return q, items, None
         except Exception as e:
             return q, [], str(e)

@@ -7,7 +7,6 @@
   get_weather   Open-Meteo (no key), hourly + 16-day, wttr.in fallback
   get_news      Currents API when a key is set, DuckDuckGo fallback
   convert_currency  ECB rates via Frankfurter, no API key
-  web_search    Tavily agent-search when a key is set, DuckDuckGo fallback
   define_word   dictionaryapi.dev, no API key
   translate     English <-> Hindi via MyMemory, no API key
   pick_one      decide between options ("pick a movie")
@@ -309,39 +308,6 @@ def _convert_currency(args):
     except Exception as e:
         return f"Couldn't convert that, sir ({type(e).__name__})."
 
-# ---------------------------------------------------------------- web search
-def _web_search(args):
-    q = str(args.get("query", "") or "").strip()
-    if not q:
-        return "What should I search for, sir?"
-    key = _secret("tavily_api_key")
-    if key:
-        try:
-            r = requests.post(
-                "https://api.tavily.com/search",
-                json={"api_key": key, "query": q, "max_results": 5,
-                      "include_answer": False},
-                timeout=15, headers=_UA)
-            res = r.json().get("results") or []
-            lines = [f"— {x.get('title')}: {(x.get('content') or '')[:220]}"
-                     for x in res[:4] if x.get("title")]
-            if lines:
-                return f"Search results for '{q}', sir:\n" + "\n".join(lines)
-        except Exception:
-            pass
-    try:
-        from ddgs import DDGS
-        with DDGS() as ddgs:
-            items = list(ddgs.text(q, max_results=5))
-        lines = [f"— {i.get('title')}: {(i.get('body') or '')[:220]}"
-                 for i in items[:4] if i.get("title")]
-        if not lines:
-            return "Nothing found, sir."
-        return f"Search results for '{q}', sir:\n" + "\n".join(lines)
-    except Exception:
-        return "Search unreachable, sir."
-
-
 def _secret(name: str) -> str:
     """Read one key from secrets.local.yaml without importing the Qt UI."""
     try:
@@ -503,14 +469,6 @@ TOOL_DEFINITIONS = [
                                       "to": {"type": "string",
                                              "description": "'INR'"}},
                        "required": ["amount"]}}},
-    {"type": "function", "function": {
-        "name": "web_search",
-        "description": ("Agent-grade web search (Tavily when a key is set, "
-                        "DuckDuckGo otherwise). Use for anything the news "
-                        "tool doesn't cover."),
-        "parameters": {"type": "object",
-                       "properties": {"query": {"type": "string"}},
-                       "required": ["query"]}}},
 ]
 
 
@@ -540,8 +498,6 @@ def handle(tool_name, args, services=None):
             return _pick_one(args)
         if tool_name == "convert_currency":
             return _convert_currency(args)
-        if tool_name == "web_search":
-            return _web_search(args)
     except Exception as e:
         return f"Everyday tool {tool_name} failed: {e}"
     return None
