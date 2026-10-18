@@ -62,6 +62,10 @@ FIELDS = [
      None, "elevenlabs.io → API keys."),
     ("API Keys", "secret:telegram_bot_token", "Telegram bot token", "password",
      None, "Phone link. Create via @BotFather on Telegram."),
+    ("API Keys", "secret:instagram_username", "Instagram username", "text",
+     None, "For reading Instagram. Your own account; session is cached."),
+    ("API Keys", "secret:instagram_password", "Instagram password", "password",
+     None, "Stored only on this PC, never leaves it."),
 
     ("Phone", "telegram.enabled", "Phone link (Telegram)", "check", None,
      "Control JARVIS from your phone. Needs restart."),

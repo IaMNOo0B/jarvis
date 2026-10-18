@@ -30,6 +30,13 @@ transformers
 playwright                   # invisible headless Chromium for browser_* tools
 # One-time after pip install:  playwright install chromium   (downloads the browser)
 
+# --- Social reading skill (YouTube transcripts, Instagram, X, Snapchat) ---
+youtube-transcript-api>=1.2.4  # video captions — the "watch YouTube" tool
+yt-dlp                         # video metadata + subtitle/audio fallback
+instaloader                    # Instagram (login via Settings → API Keys)
+twifork                        # X/Twitter (cookie file; password login is dead)
+snapchat-dlp                   # Snapchat PUBLIC stories only
+
 # --- PyInstaller build-time dep ---
 # Needed only to BUILD the single-file JARVIS.exe on a Windows PC.
 # Not required on the machine that runs JARVIS.exe.
