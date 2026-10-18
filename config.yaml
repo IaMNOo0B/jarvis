@@ -1,0 +1,80 @@
+# ============================================================
+# JARVIS Configuration
+# ============================================================
+
+brain:
+  local_model: "hf.co/ge525/Qwen3.8-9B-Distill-uncensored-heretic-Q4_K_M-GGUF:Q4_K_M"
+  num_ctx: 8192
+  temperature: 0.6
+  local_timeout: 120        # seconds before local model is considered failed
+  max_tool_rounds: 6        # tool-loop rounds per user request
+
+  # Which brain drives the conversation. Both brains share the SAME toolset,
+  # so either one can control this PC, research, and make changes — and each
+  # can delegate to the other mid-turn (consult_online_brain /
+  # consult_local_brain).
+  #   local_first : local Ollama drives, consults Gemini for hard parts
+  #   cloud_first : Gemini drives, consults local Ollama for local work
+  mode: "local_first"
+
+  cloud:
+    # provider: "gemini" (recommended — built-in defaults) or "openai" for any
+    # OpenAI-compatible endpoint (Groq: https://api.groq.com/openai/v1,
+    # OpenRouter: https://openrouter.ai/api/v1, OpenAI: https://api.openai.com/v1).
+    provider: "gemini"
+    # Store your key once — no env var needed:
+    #     python set_cloud_key.py YOUR_GEMINI_API_KEY
+    # (writes secrets.local.yaml, which is excluded from version control).
+    # Alternatively set env GEMINI_API_KEY / JARVIS_CLOUD_API_KEY.
+    api_key_env: "GEMINI_API_KEY"
+    base_url: ""            # empty = provider default (gemini -> Google's OpenAI-compat endpoint)
+    model: ""               # empty = provider default (gemini -> gemini-3.8-flash)
+    timeout: 60
+    consult_budget: 2        # cross-brain consultations allowed per turn
+    consult_rounds: 3        # tool rounds a consulted brain may use
+
+voice:
+  enabled: true
+  tts_voice: "en_GB-northern_english_male-medium"
+  piper_dir: "models/piper"          # relative to AI_Model/
+  stt_model: "base.en"               # tiny.en = fastest, small.en = most accurate
+  wake_enabled: true
+  wake_word: "hey_jarvis"
+  wake_threshold: 0.5
+  barge_in_threshold: 0.7            # wake score needed to interrupt JARVIS speaking
+  silence_seconds: 1.2               # trailing silence that ends an utterance
+  speech_start_seconds: 0.35         # minimum speech before we start listening for the end
+  max_utterance_seconds: 30
+  listen_timeout_seconds: 10         # give up if no speech starts after wake word
+
+hud:
+  enabled: true
+  width: 470
+  height: 680
+  corner: "bottom-right"             # bottom-right | bottom-left | top-right | top-left
+  click_through: true                # start with mouse pass-through enabled
+  update_hz: 60
+  show_taskbar: false
+
+routines:
+  startup_greeting: true
+  create_desktop_icon: true          # Windows: ensure a JARVIS desktop shortcut exists
+  morning_briefing: "09:00"          # "" disables
+  evening_briefing: "20:00"          # "" disables
+  briefing_on_start: false           # speak a briefing immediately at launch
+  weather_location: ""               # empty = auto (wttr.in by IP)
+
+presence:
+  enabled: true
+  away_minutes: 5
+  greet_on_return: true
+  auto_lock_on_away: false           # WARNING: locks the session after away_minutes
+  camera_index: 0
+  detect_interval_seconds: 2.0
+
+safety:
+  confirm_destructive: true          # ask "are you sure" before shutdown/restart/lock/logoff
+  workspace_only_writes: true        # file write tool confined to project folder
+
+text_mode:
+  auto_research: true                # legacy text-mode behaviour: auto web research
