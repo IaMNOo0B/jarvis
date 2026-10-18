@@ -125,6 +125,7 @@ Without a key, everything still works locally — research tools cover the gap.
   presence.py       webcam face detection greetings
   scheduler.py      reminders + weather/news/system briefings
   actions.py        research/file/code tools + tool registry
+  skills/           drop-in skill packs (new powers, no core edits) — see skills/README.md
   memory.py         JSON/Markdown memory bank
   shortcut.py       desktop icon (.ico) + JARVIS.lnk launcher
   set_cloud_key.py  store/test the Gemini key for the online brain

@@ -161,6 +161,12 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
         result = system_actions.dispatch(name, args, services)
         if result is not None:
             return result
+        # Drop-in skill packs (skills/<name>/skill.py) — checked last so core
+        # tools always win name collisions.
+        import skills
+        result = skills.dispatch(name, args, services)
+        if result is not None:
+            return result
         return f"Unknown tool: {name}"
     except Exception as e:
         return f"Tool execution error ({name}): {e}"
@@ -552,6 +558,13 @@ class BrainEngine:
     def _tools_for(self, provider: str, allow_consult: bool = True) -> list:
         """Full shared toolset; each brain only sees the consult tool for the other."""
         tools = list(actions.TOOL_DEFINITIONS)
+        # Skill packs contribute their tools too (deduped against core names).
+        try:
+            import skills
+            core_names = {t.get("function", {}).get("name") for t in tools}
+            tools.extend(skills.tool_definitions(exclude=core_names))
+        except Exception:
+            pass
         if allow_consult:
             if provider == "cloud":
                 tools.append(CONSULT_LOCAL_TOOL)
