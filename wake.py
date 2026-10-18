@@ -15,8 +15,10 @@ trained it) is skipped with a warning — the other words keep working.
 
 Training "hello_jarvis": openWakeWord supports custom wake-word training
 from your own voice samples (collect ~50 clips of the phrase + some
-not-phrase audio, train per their docs). Drop the resulting .onnx/.tflite
-into openWakeWord's model dir and restart — it activates automatically.
+not-phrase audio, train per their docs). Drop the resulting
+hello_jarvis.onnx into models/wakewords/ (next to the repo in dev,
+%APPDATA%/JARVIS when installed) and restart — it activates automatically.
+A local file always wins over openWakeWord's own model dir.
 """
 
 
@@ -47,8 +49,28 @@ class WakeListener:
     def preload(self) -> None:
         self._ensure()
 
+    @staticmethod
+    def _local_model_path(word: str):
+        """Your own trained model file, if present.
+
+        Dev: <repo>/models/wakewords/<word>.onnx
+        Installed: %APPDATA%/JARVIS/wakewords/<word>.onnx
+        A local file always wins over openWakeWord's own model dir.
+        """
+        import os
+        from paths import data_dir, frozen
+        base = (os.path.join(data_dir(), "wakewords") if frozen()
+                else os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "models", "wakewords"))
+        p = os.path.join(base, word + ".onnx")
+        return p if os.path.isfile(p) else None
+
     def _load_one(self, word: str):
         from openwakeword.model import Model
+        local = self._local_model_path(word)
+        if local:
+            # your own trained model — takes precedence
+            return Model(wakeword_models=[local], inference_framework="onnx")
         try:
             return Model(wakeword_models=[word], inference_framework="onnx")
         except Exception:
