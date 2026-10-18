@@ -76,6 +76,17 @@ telegram:
   allowed_user_ids: []               # e.g. [123456789]
   poll_timeout_seconds: 50
 
+# Watching eyes (Phase 6) — proactive screen awareness. OFF by default.
+# When enabled, a background thread captures the screen (in RAM only, never
+# saved to disk) every interval and asks the cloud brain whether you look
+# stuck; rarely, he speaks up. Needs the cloud brain (Gemini key).
+screen_watcher:
+  enabled: false
+  interval_seconds: 60
+  cooldown_seconds: 600
+  stuck_threshold: 7                  # 0-10, how stuck before he considers speaking
+  speak_probability: 0.35             # even then, only sometimes — stays rare
+
 hud:
   enabled: true
   width: 470

@@ -87,6 +87,10 @@ environment variable works too. Without a key everything still runs local.
 - **Phone link**: Telegram bot — text him or send a voice note from your
   phone; his brain answers. `@BotFather` → token in Settings > API Keys,
   your user ID in `telegram.allowed_user_ids`, `telegram.enabled: true`.
+- **Watching eyes** (opt-in): he glances at your screen and speaks up when
+  you look stuck — "I see you're fighting that error, sir." Captures stay
+  in RAM, never touch disk. Needs the cloud brain.
+  `screen_watcher.enabled: true`.
 
 ## Configuration — `config.yaml`
 

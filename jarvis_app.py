@@ -93,6 +93,7 @@ class JarvisApp:
         self.wake = None
         self.wake_word_cloud = None  # "hello_jarvis" -> cloud brain for the turn
         self.telegram = None  # phone link channel (Phase 5)
+        self.watcher = None  # watching eyes (Phase 6, opt-in)
         self.system_actions = None
 
         self._stop = threading.Event()
@@ -338,6 +339,7 @@ class JarvisApp:
                 self.hud.presence_lbl.setText("◌ searching…")
 
         self._setup_channels()
+        self._setup_watcher()
 
     def _setup_channels(self) -> None:
         """Phone link: Telegram channel (Phase 5). Idempotent."""
@@ -363,6 +365,52 @@ class JarvisApp:
         )
         self.telegram.start()
         self._note("telegram channel armed")
+
+    def _setup_watcher(self) -> None:
+        """Watching eyes (Phase 6). Opt-in; default off. Idempotent."""
+        if self.watcher is not None:
+            return
+        w = self.cfg.get("screen_watcher", {}) or {}
+        if not w.get("enabled"):
+            return
+        if not self.brain.cloud_configured:
+            self._note("screen watcher needs the cloud brain (Gemini key) — disabled")
+            return
+        from screen_watcher import ScreenWatcher
+        own_hwnd = None
+        try:
+            if self.hud is not None:
+                own_hwnd = int(self.hud.winId())
+        except Exception:
+            pass
+        self.watcher = ScreenWatcher(
+            analyze_image=self.brain.vision_describe,
+            is_idle=self._watcher_idle,
+            on_remark=self._on_screen_remark,
+            own_hwnd=own_hwnd,
+            interval_seconds=int(w.get("interval_seconds", 60)),
+            cooldown_seconds=int(w.get("cooldown_seconds", 600)),
+            stuck_threshold=int(w.get("stuck_threshold", 7)),
+            speak_probability=float(w.get("speak_probability", 0.35)),
+        )
+        self.watcher.start()
+        self._note("watching eyes enabled")
+
+    def _watcher_idle(self) -> bool:
+        """True only when a remark wouldn't interrupt anything."""
+        try:
+            if self.speaker is not None and self.speaker.busy:
+                return False
+            return not self.brain._lock.locked()
+        except Exception:
+            return False
+
+    def _on_screen_remark(self, text: str) -> None:
+        self._note(f"👁 {text}")
+        try:
+            self._say(text)  # thread-safe speech entry
+        except Exception as e:
+            self._note(f"remark speech failed: {e}")
 
     def _telegram_reply(self, text: str) -> str:
         """One Telegram message in -> brain -> reply text out."""

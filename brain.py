@@ -498,6 +498,45 @@ class BrainEngine:
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 
+    def vision_describe(self, image_b64_jpeg: str, prompt: str,
+                        max_tokens: int = 400) -> tuple:
+        """One vision question to the cloud brain.
+
+        image_b64_jpeg: base64 JPEG (no data: prefix). Returns (text, error);
+        exactly one is not None. Used by the screen watcher (Phase 6).
+        """
+        if not self.cloud_configured:
+            return None, "cloud endpoint not configured"
+        try:
+            import requests
+            url = f"{self.cloud_base}/chat/completions"
+            payload = {
+                "model": self.cloud_model,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {
+                            "url": "data:image/jpeg;base64," + image_b64_jpeg}},
+                    ],
+                }],
+                "max_tokens": max_tokens,
+            }
+            r = requests.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {self.cloud_key}"},
+                timeout=self.cloud_timeout,
+            )
+            if r.status_code != 200:
+                return None, f"cloud HTTP {r.status_code}: {r.text[:200]}"
+            content = r.json()["choices"][0]["message"].get("content") or ""
+            if isinstance(content, list):  # just in case
+                content = " ".join(p.get("text", "") for p in content
+                                   if isinstance(p, dict))
+            return str(content).strip(), None
+        except Exception as e:
+            return None, f"{type(e).__name__}: {e}"
+
     # ----------------------------------------------------------- formatting
     @staticmethod
     def _prepare(messages: list[dict], provider: str) -> list[dict]:
