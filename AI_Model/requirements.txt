@@ -1,0 +1,34 @@
+# --- Brain & research (already working) ---
+ollama
+beautifulsoup4
+ddgs
+requests
+numpy
+
+# --- Voice (offline) ---
+piper-tts>=1.2.0          # British offline TTS (en_GB voices)
+faster-whisper>=1.1.0     # offline speech-to-text
+openwakeword==0.6.0       # "hey jarvis" wake-word detection (ONNX)
+sounddevice                # microphone + speaker I/O
+soundfile                  # audio file helpers
+
+# --- PC control & system ---
+pycaw                      # Windows volume control
+comtypes                   # pycaw dependency
+psutil                     # diagnostics
+PyAutoGUI                  # typing, hotkeys, screenshots
+pywin32                    # overlay click-through + global hotkeys
+opencv-python              # webcam presence detection
+PyYAML                     # config.yaml
+PyQt6                      # HUD overlay
+
+# --- Existing model stack ---
+torch
+transformers
+
+# --- PyInstaller build-time dep ---
+# Needed only to BUILD the single-file JARVIS.exe on a Windows PC.
+# Not required on the machine that runs JARVIS.exe.
+# Install:  pip install pyinstaller
+# Freeze entry: freeze_jarvis.py   Spec: Jarvis.spec   Build wizard: build_wizard/build_jarvis_exe.bat
+pyinstaller
