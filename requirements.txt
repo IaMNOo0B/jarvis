@@ -25,3 +25,10 @@ PyQt6                      # HUD overlay
 # --- Existing model stack ---
 torch
 transformers
+
+# --- PyInstaller build-time dep ---
+# Needed only to BUILD the single-file JARVIS.exe on a Windows PC.
+# Not required on the machine that runs JARVIS.exe.
+# Install:  pip install pyinstaller
+# Freeze entry: freeze_jarvis.py   Spec: Jarvis.spec   Build wizard: build_wizard/build_jarvis_exe.bat
+pyinstaller
