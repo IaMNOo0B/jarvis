@@ -70,7 +70,10 @@ environment variable works too. Without a key everything still runs local.
 ## What he can do
 
 - **Voice**: offline wake word (`hey_jarvis`), offline STT (faster-whisper),
-  offline British TTS (Piper `en_GB-northern_english_male`) — no cloud needed
+  offline British TTS (Piper `en_GB-northern_english_male`) — no cloud needed.
+  Optional neural voices: set `voice.tts_backend: "fish"` (Fish Audio) or
+  `"elevenlabs"` in `config.yaml` plus the API key — JARVIS falls back to
+  Piper automatically if the key or network fails.
 - **PC control**: open/close apps, volume, brightness, URLs, files, screenshots,
   clipboard, typing, hotkeys, lock/shutdown (with spoken confirmation)
 - **Research**: web search, page reading, code execution, memory recall —

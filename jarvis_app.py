@@ -207,10 +207,9 @@ class JarvisApp:
         vcfg = self.cfg.get("voice", {})
 
         if self.voice_on and not self.mute:
-            from tts import Speaker, default_voice_path
+            from tts import create_speaker
             try:
-                voice_path = default_voice_path(vcfg)
-                self.speaker = Speaker(voice_path)
+                self.speaker = create_speaker(vcfg)
                 self.speaker.on_state = lambda s: self.bridge.status.emit("speaking" if s == "speaking" else "idle") if self.bridge else None
             except Exception as e:
                 print(f"[jarvis] TTS unavailable ({e}) — falling back to console voice")

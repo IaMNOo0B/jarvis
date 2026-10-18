@@ -35,7 +35,23 @@ brain:
 
 voice:
   enabled: true
-  tts_voice: "en_GB-northern_english_male-medium"
+  # --- TTS backend: "piper" (offline, default), "fish", or "elevenlabs" ---
+  # piper      = offline British voice, no key, no network (always the fallback)
+  # fish       = Fish Audio neural TTS (https://fish.audio) — human, non-robotic
+  # elevenlabs = ElevenLabs neural TTS, multilingual model (handles Hinglish)
+  # Neural backends fall back to piper automatically if the key/network fails.
+  tts_backend: "piper"
+  # Fish Audio: API key at https://fish.audio -> API keys. Pick or create a
+  # voice, then copy its model ID from the voice page URL.
+  fish_voice_id: ""        # reference_id, e.g. "802e3bc2b27e49c2995d23ef70e6ac89"
+  fish_model: "s1"         # model header — see Fish Audio docs for newer models
+  # ElevenLabs: API key at https://elevenlabs.io/app/settings/api-keys
+  elevenlabs_voice_id: ""  # voice ID from your ElevenLabs voice library
+  elevenlabs_model: "eleven_multilingual_v2"  # multilingual incl. Hindi
+  # API keys: set FISH_API_KEY / ELEVENLABS_API_KEY in the environment, or add
+  # fish_api_key: / elevenlabs_api_key: to secrets.local.yaml (same file as
+  # the Gemini key — never committed).
+  tts_voice: "en_GB-northern_english_male-medium"  # piper voice (offline)
   piper_dir: "models/piper"          # relative to AI_Model/
   stt_model: "base.en"               # tiny.en = fastest, small.en = most accurate
   wake_enabled: true
