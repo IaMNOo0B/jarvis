@@ -53,7 +53,9 @@ voice:
   # the Gemini key — never committed).
   tts_voice: "en_GB-northern_english_male-medium"  # piper voice (offline)
   piper_dir: "models/piper"          # relative to AI_Model/
-  stt_model: "base.en"               # tiny.en = fastest, small.en = most accurate
+  stt_model: "base"                  # multilingual; tiny/base/small (no .en = understands Hinglish)
+  stt_language: "auto"               # auto-detect per utterance; "en" pins English, "hi" pins Hindi
+  # stt_initial_prompt: ""           # override the built-in Hinglish bias prompt (empty = no prompt)
   wake_enabled: true
   wake_word: "hey_jarvis"
   wake_threshold: 0.5

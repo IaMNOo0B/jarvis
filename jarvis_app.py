@@ -292,7 +292,12 @@ class JarvisApp:
                                      threshold=float(v.get("wake_threshold", 0.5)))
 
         from stt import Transcriber
-        self.transcriber = Transcriber(self.cfg.get("voice", {}).get("stt_model", "base.en"))
+        vcfg = self.cfg.get("voice", {})
+        self.transcriber = Transcriber(
+            vcfg.get("stt_model", "base"),
+            language=vcfg.get("stt_language", "auto"),
+            initial_prompt=vcfg.get("stt_initial_prompt", None),
+        )
 
     def _setup_services(self) -> None:
         """Wire scheduler + presence into system_actions and the brain."""

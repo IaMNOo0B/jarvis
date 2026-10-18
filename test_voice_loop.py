@@ -87,7 +87,11 @@ def main() -> int:
         from stt import Transcriber
         audio16, _ = wav_bytes_to_16k_float(wav)
         t0 = time.time()
-        tr = Transcriber(vcfg.get("stt_model", "base.en"))
+        tr = Transcriber(
+            vcfg.get("stt_model", "base"),
+            language=vcfg.get("stt_language", "auto"),
+            initial_prompt=vcfg.get("stt_initial_prompt", None),
+        )
         tr.preload()
         text = tr.transcribe(audio16)
         stt_s = time.time() - t0
