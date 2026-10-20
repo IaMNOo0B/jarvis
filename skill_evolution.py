@@ -247,12 +247,8 @@ def _top_level_assignment(tree: ast.Module, variable: str):
 def evaluate_skill_candidate(candidate_id: str) -> str:
     """Run static checks only. Never import or execute staged candidate code."""
     try:
-        folder = _candidate_dir(candidate_id)
-        with open(os.path.join(folder, "candidate.json"), "r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
+        folder, metadata, code = _read_candidate(candidate_id)
         code_path = os.path.join(folder, "skill.py")
-        with open(code_path, "r", encoding="utf-8") as handle:
-            code = handle.read()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return f"Candidate evaluation failed: {exc}"
 
