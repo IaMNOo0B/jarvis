@@ -59,6 +59,28 @@ the separate validation step records reviewed evidence and an outcome. Memory
 search also checks source/evidence metadata and prefers validated records when
 relevance scores are tied.
 
+### Candidate testing, promotion, and rollback
+
+Pass test cases when staging a candidate, using `kind: "feature"` for new
+behavior and `kind: "regression"` for behavior that must remain compatible.
+`test_skill_candidate` runs the candidate and relevant baseline checks in a
+constrained disposable subprocess, with a timeout and output limit. It blocks
+network imports and confines ordinary Python file access to its temporary
+working area. This reduces risk, but it is **not a hardened OS sandbox**; use
+a disposable environment without secrets for untrusted code.
+
+A passing candidate is still not active. `promote_skill_candidate` requires
+an explicit second call whose `approval_token` exactly matches the candidate
+ID, verifies both the tested candidate hash and baseline hashes, and stores
+the prior live override before an atomic replacement. In a packaged install,
+the replacement lives in `%APPDATA%/JARVIS/skills` and takes precedence over
+the bundled version. A restart is required to load it.
+
+Use `list_skill_versions` to inspect version history and
+`rollback_skill_version` to restore a previous version. Rollback requires
+the exact version ID as its approval token and refuses if the live file has
+changed since promotion.
+
 ## Two brains, one JARVIS
 
 JARVIS runs a **local Ollama core** and can pair it with an **online brain
