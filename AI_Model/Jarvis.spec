@@ -156,7 +156,7 @@ APP = {
 }
 
 patches = []
-data_files = []
+data_files = [(os.path.join(_repo_root, "JARVIS_PROTOCOLS.txt"), ".")]
 binaries = []
 
 # Collect dynamic libs for native packages that PyInstaller's hooks might not
