@@ -144,7 +144,7 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
     if tree is not None:
         allowed_top_level = (
             ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom,
-            ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Pass,
+            ast.FunctionDef, ast.AsyncFunctionDef, ast.Pass,
         )
         for node in tree.body:
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
@@ -155,9 +155,29 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
                     "move runtime work inside handle()."
                 )
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                value = node.value
-                if any(isinstance(part, ast.Call) for part in ast.walk(value)):
-                    errors.append("Top-level assignments must use literal values, not function calls.")
+                try:
+                    ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    errors.append("Top-level assignments must contain literal data only.")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.decorator_list:
+                    errors.append(f"Function {node.name} uses decorators that would execute during import.")
+                defaults = list(node.args.defaults) + [v for v in node.args.kw_defaults if v is not None]
+                for value in defaults:
+                    if any(isinstance(part, ast.Call) for part in ast.walk(value)):
+                        errors.append(f"Function {node.name} has a call in its default argument.")
+                annotations = [
+                    arg.annotation for arg in list(node.args.posonlyargs) + list(node.args.args) + list(node.args.kwonlyargs)
+                    if arg.annotation is not None
+                ]
+                if node.args.vararg and node.args.vararg.annotation is not None:
+                    annotations.append(node.args.vararg.annotation)
+                if node.args.kwarg and node.args.kwarg.annotation is not None:
+                    annotations.append(node.args.kwarg.annotation)
+                if node.returns is not None:
+                    annotations.append(node.returns)
+                if any(isinstance(part, ast.Call) for annotation in annotations for part in ast.walk(annotation)):
+                    errors.append(f"Function {node.name} has a call in an annotation that may execute during import.")
         declared_name = _top_level_assignment(tree, "SKILL_NAME")
         description = _top_level_assignment(tree, "SKILL_DESCRIPTION")
         schemas = _top_level_assignment(tree, "TOOL_DEFINITIONS")
