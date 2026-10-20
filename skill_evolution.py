@@ -15,13 +15,15 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from datetime import datetime
 
 from paths import user_file
 
 
 CANDIDATE_ROOT = user_file("skill_candidates")
-LIVE_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+BUNDLED_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+LIVE_SKILLS_DIR = user_file("skills") if getattr(sys, "frozen", False) else BUNDLED_SKILLS_DIR
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}-[0-9a-f]{10}$")
 _VERSION_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}-[0-9]{8}T[0-9]{6}-[0-9a-f]{8}$")
@@ -70,6 +72,24 @@ def _live_skill_path(name: str) -> str:
     target = os.path.realpath(raw_target)
     if os.path.commonpath([root, target]) != root:
         raise ValueError("Live skill path resolves outside the skills directory.")
+    return target
+
+
+def _baseline_skill_path(name: str) -> str:
+    """Find the currently effective skill: user override first, bundled copy second."""
+    writable_target = _live_skill_path(name)
+    if os.path.isfile(writable_target):
+        return writable_target
+    if not getattr(sys, "frozen", False):
+        return writable_target
+    root = os.path.realpath(BUNDLED_SKILLS_DIR)
+    raw_folder = os.path.join(BUNDLED_SKILLS_DIR, name)
+    raw_target = os.path.join(raw_folder, "skill.py")
+    if os.path.islink(raw_folder) or os.path.islink(raw_target):
+        raise ValueError("Bundled skill folders and skill.py files must not be symlinks.")
+    target = os.path.realpath(raw_target)
+    if os.path.commonpath([root, target]) != root:
+        raise ValueError("Bundled skill path resolves outside the skills directory.")
     return target
 
 
@@ -174,8 +194,9 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
         interpreter = sys.executable
 
     name = str(metadata.get("name") or "")
-    current_baseline_path = _live_skill_path(name)
+    current_baseline_path = _baseline_skill_path(name)
     current_baseline_sha = _sha256_file(current_baseline_path)
+    current_target_sha = _sha256_file(_live_skill_path(name))
     has_regressions = any(case["kind"] == "regression" for case in cases)
     baseline_source = ""
     if current_baseline_sha:
@@ -322,6 +343,7 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
         metadata["tested_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         metadata["tested_source_sha256"] = hashlib.sha256(candidate_source.encode("utf-8")).hexdigest()
         metadata["tested_baseline_sha256"] = current_baseline_sha
+        metadata["tested_target_sha256"] = current_target_sha
         metadata["activated"] = False
         _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
         return json.dumps({
@@ -365,26 +387,34 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
         if metadata.get("activated") or metadata.get("promoted"):
             return "Promotion refused: candidate has already been promoted; inspect its version history."
         live_path = _live_skill_path(name)
-        current_sha = _sha256_file(live_path)
+        baseline_path = _baseline_skill_path(name)
+        current_baseline_sha = _sha256_file(baseline_path)
+        current_target_sha = _sha256_file(live_path)
         tested_baseline_sha = metadata.get("tested_baseline_sha256")
-        if current_sha != tested_baseline_sha:
+        tested_target_sha = metadata.get("tested_target_sha256")
+        if current_baseline_sha != tested_baseline_sha:
             return (
-                "Promotion refused: the live skill changed after testing. "
+                "Promotion refused: the effective baseline changed after testing. "
                 "Compare the new baseline, then run the candidate tests again."
+            )
+        if current_target_sha != tested_target_sha:
+            return (
+                "Promotion refused: the writable live override changed after testing. "
+                "Re-test the candidate before promoting it."
             )
 
         previous_bytes = None
-        if current_sha is not None:
+        if current_target_sha is not None:
             with open(live_path, "rb") as handle:
                 previous_bytes = handle.read()
-            if hashlib.sha256(previous_bytes).hexdigest() != current_sha:
-                return "Promotion refused: could not verify the live baseline before backup."
+            if hashlib.sha256(previous_bytes).hexdigest() != current_target_sha:
+                return "Promotion refused: could not verify the existing live override before backup."
 
         created = datetime.now().astimezone()
         version_id = f"{name}-{created.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
         version_folder = _version_dir(version_id)
         os.makedirs(version_folder, exist_ok=False)
-        previous_sha = current_sha
+        previous_sha = current_target_sha
         if previous_bytes is not None:
             _atomic_write_bytes(os.path.join(version_folder, "previous_skill.py"), previous_bytes)
 
@@ -401,8 +431,10 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
             "backup_file": "previous_skill.py" if previous_bytes is not None else None,
             "tested_at": metadata.get("tested_at"),
             "tested_baseline_sha256": tested_baseline_sha,
+            "tested_target_sha256": tested_target_sha,
+            "effective_baseline_sha256": current_baseline_sha,
             "tests_status": report.get("status"),
-            "rollback_available": previous_bytes is not None,
+            "rollback_available": True,
         }
         _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
 
@@ -728,7 +760,7 @@ def stage_skill_candidate(name: str, code: str, rationale: str = "",
     if os.path.exists(meta_path):
         return f"Candidate already staged: {candidate_id}. No files were overwritten."
 
-    baseline_sha = _sha256_file(_live_skill_path(name))
+    baseline_sha = _sha256_file(_baseline_skill_path(name))
     metadata = {
         "candidate_id": candidate_id,
         "name": name,
@@ -784,7 +816,7 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
     warnings = []
     if digest != metadata.get("sha256"):
         errors.append("Source hash no longer matches the staged metadata.")
-    current_baseline_sha = _sha256_file(_live_skill_path(str(metadata.get("name", ""))))
+    current_baseline_sha = _sha256_file(_baseline_skill_path(str(metadata.get("name", ""))))
     if current_baseline_sha != metadata.get("base_sha256"):
         warnings.append("The live skill baseline changed since staging; compare and review the candidate against the current version before considering promotion.")
     metadata["current_base_sha256_at_evaluation"] = current_baseline_sha
