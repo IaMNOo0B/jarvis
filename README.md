@@ -27,10 +27,26 @@ instructions, screen-watcher prompt, or operating rules. Keep the section
 markers intact. Changes to loaded prompts take effect on the next relevant
 turn/restart, depending on the component.
 
-If the file is missing, unreadable, or missing a required section, Jarvis must
-fail closed instead of silently using a hardcoded prompt. The TXT file controls
-AI instructions; application code must still enforce permissions, confirmations,
-and other security-critical behavior. Never place API keys in this file.
+If the file is missing, unreadable, or missing a required section, Jarvis
+fails closed instead of silently using a hardcoded prompt. Keep AI-facing
+workspace boundaries, file-handling instructions, and permission-request rules
+in this TXT file. The two-phase shutdown/restart/logoff confirmation mechanism
+remains executable code. Never place API keys in this file.
+
+## Evidence-backed learning and skill evolution
+
+New memory records preserve their source, evidence, confidence, observed outcome,
+and validation status. Records start as **unverified**; validation evidence and
+an outcome must be recorded before a record can be marked validated. A damaged
+memory file now raises a visible error rather than silently becoming an empty
+memory bank.
+
+Reusable skill ideas can be saved with `stage_skill_candidate`. Candidates are
+stored separately from live skills and are not imported or run. Use
+`evaluate_skill_candidate` for static Python/interface checks. A static pass is
+not a runtime test: candidates still require isolated tests, diff review, and
+explicit review before promotion. Jarvis must not claim that source code has
+changed the base model's weights merely because it updated memory or skills.
 
 ## Two brains, one JARVIS
 
