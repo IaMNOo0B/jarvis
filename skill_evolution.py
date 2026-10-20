@@ -46,8 +46,8 @@ def _candidate_dir(candidate_id: str) -> str:
     candidate_id = str(candidate_id or "").strip()
     if not _ID_RE.fullmatch(candidate_id):
         raise ValueError("Invalid candidate ID. Use the ID returned when the candidate was staged.")
-    root = os.path.abspath(CANDIDATE_ROOT)
-    target = os.path.abspath(os.path.join(root, candidate_id))
+    root = os.path.realpath(CANDIDATE_ROOT)
+    target = os.path.realpath(os.path.join(root, candidate_id))
     if os.path.commonpath([root, target]) != root:
         raise ValueError("Candidate path is outside the staging directory.")
     return target
@@ -72,6 +72,13 @@ def _read_candidate(candidate_id: str) -> tuple[str, dict, str]:
     folder = _candidate_dir(candidate_id)
     with open(os.path.join(folder, "candidate.json"), "r", encoding="utf-8") as handle:
         metadata = json.load(handle)
+    if not isinstance(metadata, dict):
+        raise ValueError("Candidate metadata must be a JSON object.")
+    name = str(metadata.get("name") or "")
+    if not _NAME_RE.fullmatch(name):
+        raise ValueError("Candidate metadata contains an invalid skill name.")
+    if metadata.get("candidate_id") != candidate_id or not candidate_id.startswith(name + "-"):
+        raise ValueError("Candidate ID does not match its metadata.")
     with open(os.path.join(folder, "skill.py"), "r", encoding="utf-8") as handle:
         source = handle.read()
     return folder, metadata, source
