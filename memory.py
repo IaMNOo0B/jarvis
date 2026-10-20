@@ -268,18 +268,34 @@ class MemoryBank:
             entry_status = str(entry.get("validation_status") or "unverified").lower()
             if status != "all" and entry_status != status:
                 continue
-            searchable = f"{title} {content} {' '.join(_text_list(entry.get('tags')))}".lower()
-            score = sum(1 for term in query_terms if term in searchable)
+            searchable_parts = [
+                title,
+                content,
+                str(entry.get("source") or ""),
+                str(entry.get("outcome") or ""),
+                str(entry.get("outcome_status") or ""),
+                str(entry.get("record_type") or ""),
+                str(entry.get("validation_outcome") or ""),
+                str(entry.get("user_feedback") or ""),
+                " ".join(_text_list(entry.get("tags"))),
+                " ".join(_text_list(entry.get("evidence"))),
+                " ".join(_text_list(entry.get("validation_evidence"))),
+            ]
+            searchable = " ".join(searchable_parts).casefold()
+            score = sum(1 for term in query_terms if term.casefold() in searchable)
+            validated_bonus = int(entry_status == "validated")
+            timestamp = str(entry.get("timestamp", ""))
             if score > 0 or not query_terms:
-                scored.append((score, entry))
+                scored.append((score, validated_bonus, timestamp, entry))
 
-        scored.sort(key=lambda pair: (pair[0], str(pair[1].get("timestamp", ""))), reverse=True)
+        # Relevance first; validated records win ties, followed by recency.
+        scored.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
         top_matches = scored[:max(1, min(int(top_k), 20))]
         if not top_matches:
             return f"No memories found for query '{query}' with status '{status}'."
 
         results = [f"Found {len(top_matches)} learning record(s) (filter: {status}):"]
-        for _, item in top_matches:
+        for _, _, _, item in top_matches:
             entry_status = item.get("validation_status") or "unverified"
             confidence = item.get("confidence")
             conf_text = f", confidence {confidence:.2f}" if isinstance(confidence, (int, float)) else ""
