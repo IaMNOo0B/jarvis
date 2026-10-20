@@ -14,6 +14,8 @@ REQUIRED_SECTIONS = {
     "RESEARCH_AGAIN_PROMPT",
     "OPERATING_PROTOCOLS",
     "SCREEN_WATCHER_PROMPT",
+    "HEDGE_PATTERNS",
+    "STT_TRANSCRIPTION_PROMPT",
 }
 
 
@@ -64,7 +66,7 @@ def _read_sections() -> dict[str, str]:
 
 def load_prompt(name: str) -> str:
     sections = _read_sections()
-    if name not in {"SYSTEM_PROMPT", "CONSULT_SYSTEM_PROMPT", "RESEARCH_AGAIN_PROMPT", "SCREEN_WATCHER_PROMPT"}:
+    if name not in {"SYSTEM_PROMPT", "CONSULT_SYSTEM_PROMPT", "RESEARCH_AGAIN_PROMPT", "SCREEN_WATCHER_PROMPT", "HEDGE_PATTERNS", "STT_TRANSCRIPTION_PROMPT"}:
         raise ProtocolsError(f"Unknown prompt section: {name}")
     return sections[name]
 
