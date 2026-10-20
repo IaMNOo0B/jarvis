@@ -35,6 +35,7 @@ import actions
 from memory import memory_instance
 from persona import (CONSULT_SYSTEM_PROMPT, RESEARCH_AGAIN_PROMPT,
                      SYSTEM_PROMPT, is_hedged)
+from protocols import apply_protocols
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 # Secrets + panel settings are WRITTEN at runtime: next to the repo in dev,
@@ -276,7 +277,7 @@ class BrainEngine:
 
     # ----------------------------------------------------------- conversation
     def reset(self) -> None:
-        self.history: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.history: list[dict] = [{"role": "system", "content": apply_protocols(SYSTEM_PROMPT)}]
 
     @property
     def cloud_configured(self) -> bool:
@@ -444,6 +445,7 @@ class BrainEngine:
     def _respond_locked(self, user_text: str) -> BrainResult:
         if not user_text:
             return BrainResult(reply="")
+        self.history[0] = {"role": "system", "content": apply_protocols(SYSTEM_PROMPT)}
         # drop an unused research-directive left over from a previous turn
         while len(self.history) > 1 and self.history[-1].get("role") == "user" \
                 and self.history[-1].get("content") == RESEARCH_AGAIN_PROMPT:
@@ -637,7 +639,7 @@ class BrainEngine:
                 "messages": [{
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
+                        {"type": "text", "text": apply_protocols(prompt)},
                         {"type": "image_url", "image_url": {
                             "url": "data:image/jpeg;base64," + image_b64_jpeg}},
                     ],
@@ -850,7 +852,7 @@ class BrainEngine:
         mode = ("actually DO the work with your tools, then report what you did"
                 if focus == "execute"
                 else "answer thoroughly, using tools to research/verify first")
-        return CONSULT_SYSTEM_PROMPT.format(partner=partner, mode=mode)
+        return apply_protocols(CONSULT_SYSTEM_PROMPT.format(partner=partner, mode=mode))
 
     # ------------------------------------------------------------ fallbacks
     def _offline_reply(self, err: str | None) -> str:
