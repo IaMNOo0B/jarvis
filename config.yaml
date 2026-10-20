@@ -125,7 +125,6 @@ presence:
 
 safety:
   confirm_destructive: true          # ask "are you sure" before shutdown/restart/lock/logoff
-  workspace_only_writes: true        # file write tool confined to project folder
 
 text_mode:
   auto_research: true                # legacy text-mode behaviour: auto web research
