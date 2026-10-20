@@ -50,8 +50,10 @@ class MemoryBank:
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 entries = json.load(f)
-        except FileNotFoundError:
-            return []
+        except FileNotFoundError as exc:
+            raise MemoryDataError(
+                f"Memory file {MEMORY_FILE} disappeared; no empty replacement was created."
+            ) from exc
         except (OSError, json.JSONDecodeError) as exc:
             raise MemoryDataError(
                 f"Could not safely read {MEMORY_FILE}; memory was not reset. "
