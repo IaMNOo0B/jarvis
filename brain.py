@@ -33,9 +33,8 @@ import yaml
 
 import actions
 from memory import memory_instance
-from persona import (CONSULT_SYSTEM_PROMPT, RESEARCH_AGAIN_PROMPT,
-                     SYSTEM_PROMPT, is_hedged)
-from protocols import apply_protocols
+from persona import is_hedged
+from protocols import apply_protocols, load_prompt
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 # Secrets + panel settings are WRITTEN at runtime: next to the repo in dev,
@@ -303,7 +302,7 @@ class BrainEngine:
 
     # ----------------------------------------------------------- conversation
     def reset(self) -> None:
-        self.history: list[dict] = [{"role": "system", "content": apply_protocols(SYSTEM_PROMPT)}]
+        self.history: list[dict] = [{"role": "system", "content": apply_protocols(load_prompt("SYSTEM_PROMPT"))}]
 
     @property
     def cloud_configured(self) -> bool:
@@ -471,10 +470,11 @@ class BrainEngine:
     def _respond_locked(self, user_text: str) -> BrainResult:
         if not user_text:
             return BrainResult(reply="")
-        self.history[0] = {"role": "system", "content": apply_protocols(SYSTEM_PROMPT)}
+        self.history[0] = {"role": "system", "content": apply_protocols(load_prompt("SYSTEM_PROMPT"))}
+        research_again_prompt = load_prompt("RESEARCH_AGAIN_PROMPT")
         # drop an unused research-directive left over from a previous turn
         while len(self.history) > 1 and self.history[-1].get("role") == "user" \
-                and self.history[-1].get("content") == RESEARCH_AGAIN_PROMPT:
+                and self.history[-1].get("content") == research_again_prompt:
             self.history.pop()
         self.history.append({"role": "user", "content": user_text})
         tools_used: list[str] = []
@@ -524,7 +524,7 @@ class BrainEngine:
                 if is_hedged(content):
                     hedged_rounds += 1
                     if hedged_rounds == 1 and rnd < self.max_rounds:
-                        self.history.append({"role": "user", "content": RESEARCH_AGAIN_PROMPT})
+                        self.history.append({"role": "user", "content": research_again_prompt})
                         continue
                     if secondary and not switched:
                         # let the OTHER brain take a swing at it
@@ -532,7 +532,7 @@ class BrainEngine:
                         escalated = True
                         active = secondary
                         self.emit("status", "escalating")
-                        self.history.append({"role": "user", "content": RESEARCH_AGAIN_PROMPT})
+                        self.history.append({"role": "user", "content": research_again_prompt})
                         continue
                 if not content:
                     content = self._synthesize_from_tools(tools_used)
@@ -878,7 +878,7 @@ class BrainEngine:
         mode = ("actually DO the work with your tools, then report what you did"
                 if focus == "execute"
                 else "answer thoroughly, using tools to research/verify first")
-        return apply_protocols(CONSULT_SYSTEM_PROMPT.format(partner=partner, mode=mode))
+        return apply_protocols(load_prompt("CONSULT_SYSTEM_PROMPT").format(partner=partner, mode=mode))
 
     # ------------------------------------------------------------ fallbacks
     def _offline_reply(self, err: str | None) -> str:
