@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -23,8 +24,22 @@ class ProtocolsError(RuntimeError):
     pass
 
 
+def _policy_path() -> Path:
+    """Prefer an editable file beside the app; fall back to PyInstaller's bundle."""
+    external_path = BASE_DIR / PROTOCOLS_FILENAME
+    if external_path.is_file():
+        return external_path
+    if getattr(sys, "frozen", False):
+        bundled_root = os.environ.get("_MEIPASS")
+        if bundled_root:
+            bundled_path = Path(bundled_root) / PROTOCOLS_FILENAME
+            if bundled_path.is_file():
+                return bundled_path
+    return external_path
+
+
 def _read_sections() -> dict[str, str]:
-    path = BASE_DIR / PROTOCOLS_FILENAME
+    path = _policy_path()
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
