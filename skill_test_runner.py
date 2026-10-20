@@ -66,7 +66,7 @@ def _install_audit_guard(work_root):
             if name in _BLOCKED_IMPORTS:
                 raise PermissionError(f"Blocked import during candidate test: {name}")
             if isinstance(filename, (str, bytes, os.PathLike)):
-                native = str(filename).lower().endswith(importlib.machinery.EXTENSION_SUFFIXES)
+                native = str(filename).lower().endswith(tuple(suffix.lower() for suffix in importlib.machinery.EXTENSION_SUFFIXES))
                 if native and not _within(filename, stdlib_roots):
                     raise PermissionError("Native extensions outside Python's standard library are blocked during candidate tests.")
 
