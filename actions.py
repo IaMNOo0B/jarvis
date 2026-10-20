@@ -491,6 +491,22 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "review_skill_candidate",
+            "description": "Produce one consolidated candidate review: static checks, diff from the current effective skill, baseline drift, candidate feature tests, and regression-test results. This tool never promotes or activates code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "run_tests": {"type": "boolean", "description": "Run the candidate test suite after static checks; defaults to true."},
+                    "timeout_seconds": {"type": "integer", "description": "Overall test timeout, 3-30 seconds; defaults to 15."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "promote_skill_candidate",
             "description": "Install a candidate only after static checks and its test suite pass. The first call without approval_token only requests confirmation. After Sir explicitly approves this exact candidate ID, call again with approval_token equal to that ID. Creates a version archive and requires Jarvis restart; does not hot-load the code.",
             "parameters": {
