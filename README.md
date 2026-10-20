@@ -71,15 +71,21 @@ a disposable environment without secrets for untrusted code.
 
 A passing candidate is still not active. `promote_skill_candidate` requires
 an explicit second call whose `approval_token` exactly matches the candidate
-ID, verifies both the tested candidate hash and baseline hashes, and stores
-the prior live override before an atomic replacement. In a packaged install,
-the replacement lives in `%APPDATA%/JARVIS/skills` and takes precedence over
-the bundled version. A restart is required to load it.
+ID, verifies the tested candidate hash and baseline hashes, and stores the
+prior live override before an atomic replacement. Replacements are written
+to `%APPDATA%/JARVIS/skills` in packaged installs and take precedence over
+bundled skills. A restart is required to load them.
+
+On startup, a promoted skill that fails during import can be automatically
+rolled back **only** when the failing file's SHA-256 matches the recorded
+promotion. If the live file was manually changed or its hash is different,
+Jarvis leaves it untouched and reports the error. Diagnostics include the
+automatic recovery result.
 
 Use `list_skill_versions` to inspect version history and
-`rollback_skill_version` to restore a previous version. Rollback requires
-the exact version ID as its approval token and refuses if the live file has
-changed since promotion.
+`rollback_skill_version` to intentionally restore a previous version.
+Intentional rollback requires the exact version ID as its approval token and
+refuses if the live file has changed since promotion.
 
 ## Two brains, one JARVIS
 
