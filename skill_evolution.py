@@ -512,7 +512,9 @@ def review_skill_candidate(
     static_text = evaluate_skill_candidate(candidate_id)
     static_pass = "Static result: STATIC_PASS_REVIEW_REQUIRED" in static_text
     diff_text = compare_skill_candidate(candidate_id)
-    current_baseline_sha = _sha256_file(_baseline_skill_path(str(metadata.get("name") or "")))
+    name = str(metadata.get("name") or "")
+    current_baseline_sha = _sha256_file(_baseline_skill_path(name))
+    current_target_sha = _sha256_file(_live_skill_path(name))
     baseline_changed = current_baseline_sha != metadata.get("base_sha256")
     test_result = None
     if static_pass and run_tests:
@@ -533,13 +535,39 @@ def review_skill_candidate(
     regression_count = int(report.get("regression_case_count") or 0)
     candidate_failed = int(report.get("candidate_failed") or 0)
     live_baseline_exists = current_baseline_sha is not None
-    review_ready = (
-        static_pass
-        and test_status in accepted_test_states
-        and candidate_failed == 0
-        and not baseline_changed
-        and (not live_baseline_exists or regression_count > 0)
+    try:
+        _, latest_metadata, latest_source = _read_candidate(candidate_id)
+    except (OSError, ValueError, json.JSONDecodeError):
+        latest_metadata, latest_source = {}, ""
+    tested_baseline_sha = latest_metadata.get("tested_baseline_sha256")
+    tested_target_sha = latest_metadata.get("tested_target_sha256")
+    source_matches_staged = source_sha == metadata.get("sha256") == hashlib.sha256(latest_source.encode("utf-8")).hexdigest()
+    baseline_changed_during_tests = (
+        bool((test_result or {}).get("tests_run"))
+        and current_baseline_sha != tested_baseline_sha
     )
+    target_changed_during_tests = (
+        bool((test_result or {}).get("tests_run"))
+        and current_target_sha != tested_target_sha
+    )
+    blockers = []
+    if not static_pass:
+        blockers.append("Static checks did not pass.")
+    if test_status not in accepted_test_states:
+        blockers.append("No passing behavior-test report is available.")
+    if candidate_failed:
+        blockers.append(f"{candidate_failed} candidate test(s) failed.")
+    if baseline_changed:
+        blockers.append("Effective baseline changed since staging.")
+    if baseline_changed_during_tests:
+        blockers.append("Effective baseline changed during/after testing.")
+    if target_changed_during_tests:
+        blockers.append("Writable target changed during/after testing.")
+    if not source_matches_staged:
+        blockers.append("Candidate source changed or failed its staged hash check.")
+    if live_baseline_exists and regression_count == 0:
+        blockers.append("Existing skill is missing regression coverage.")
+    review_ready = not blockers
     result = {
         "candidate_id": candidate_id,
         "name": metadata.get("name"),
@@ -554,6 +582,10 @@ def review_skill_candidate(
         "baseline_failures": report.get("baseline_failures", []),
         "baseline_exists": live_baseline_exists,
         "baseline_changed_since_staging": baseline_changed,
+        "baseline_changed_during_tests": baseline_changed_during_tests,
+        "target_changed_during_tests": target_changed_during_tests,
+        "source_matches_staged": source_matches_staged,
+        "blockers": blockers,
         "staged_source_sha256": metadata.get("sha256"),
         "current_source_sha256": source_sha,
         "effective_baseline_sha256": current_baseline_sha,
