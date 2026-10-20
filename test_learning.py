@@ -37,6 +37,27 @@ class MemoryLearningTests(unittest.TestCase):
         self.assertEqual(len(entries[0]["evidence"]), 2)
         self.assertEqual(entries[0]["confidence"], 0.7)
 
+    def test_task_outcome_keeps_reward_evidence_and_status(self):
+        result = self.bank.record_task_outcome(
+            task="Load a candidate skill",
+            status="failure",
+            result="The Python import failed with a syntax error.",
+            evidence=["tool: execute_code returned SyntaxError", "path: skill_candidates/demo/skill.py"],
+            user_feedback="Sir asked to fix the syntax error.",
+        )
+        self.assertIn("failure", result)
+        with open(memory.MEMORY_FILE, encoding="utf-8") as handle:
+            entries = json.load(handle)
+        episode = entries[0]
+        self.assertEqual(episode["record_type"], "task_outcome")
+        self.assertEqual(episode["outcome_status"], "failure")
+        self.assertEqual(episode["reward"], -1.0)
+        self.assertEqual(episode["validation_status"], "validated")
+        self.assertEqual(len(episode["evidence"]), 2)
+        summary = self.bank.search_memory("candidate skill", status="validated")
+        self.assertIn("Reward signal: -1.0", summary)
+        self.assertIn("Task status: failure", summary)
+
     def test_validation_requires_evidence_and_records_outcome(self):
         self.bank.save_knowledge("Lesson", "Test-backed lesson", source="test")
         with open(memory.MEMORY_FILE, encoding="utf-8") as handle:
