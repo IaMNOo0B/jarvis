@@ -491,6 +491,49 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "promote_skill_candidate",
+            "description": "Install a candidate only after static checks and its test suite pass. The first call without approval_token only requests confirmation. After Sir explicitly approves this exact candidate ID, call again with approval_token equal to that ID. Creates a version archive and requires Jarvis restart; does not hot-load the code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "approval_token": {"type": "string", "description": "Must exactly equal candidate_id and may be supplied only after Sir explicitly approves this exact candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rollback_skill_version",
+            "description": "Restore the previous skill version for a promoted version ID. The first call without approval_token only requests confirmation. After Sir explicitly approves this exact version ID, call again with approval_token equal to that ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "version_id": {"type": "string", "description": "Exact version ID returned by promotion or version history."},
+                    "approval_token": {"type": "string", "description": "Must exactly equal version_id and may be supplied only after Sir explicitly approves the rollback."}
+                },
+                "required": ["version_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_skill_versions",
+            "description": "List version history, hashes, promotion state, and rollback availability without executing skill code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum versions to list, 1-50; defaults to 20."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_skill_candidates",
             "description": "List staged skill proposals, evaluation status, and activation state without executing their code.",
             "parameters": {
