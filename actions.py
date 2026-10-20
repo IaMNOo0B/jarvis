@@ -436,7 +436,24 @@ TOOL_DEFINITIONS = [
                     "name": {"type": "string", "description": "Lowercase skill name, such as research_helper."},
                     "code": {"type": "string", "description": "Complete Python source for skills/<name>/skill.py."},
                     "rationale": {"type": "string", "description": "Problem this candidate is intended to solve."},
-                    "source": {"type": "string", "description": "Research source URLs or design references."}
+                    "source": {"type": "string", "description": "Research source URLs or design references."},
+                    "tests": {
+                        "type": "array",
+                        "description": "Optional behavior test cases. Each case needs tool_name, args, kind (feature/regression), and exactly one expected_equals, expected_contains, or expected_is_none assertion.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "tool_name": {"type": "string"},
+                                "args": {"type": "object"},
+                                "kind": {"type": "string", "enum": ["feature", "regression"]},
+                                "expected_equals": {"type": ["string", "null"]},
+                                "expected_contains": {"type": "string"},
+                                "expected_is_none": {"type": "boolean"}
+                            },
+                            "required": ["tool_name"]
+                        }
+                    }
                 },
                 "required": ["name", "code"]
             }
@@ -451,6 +468,21 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "test_skill_candidate",
+            "description": "Run the supplied candidate tests in a constrained disposable subprocess. When regression cases are provided, compare them against the current live skill. This records a report but never activates or promotes the candidate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "timeout_seconds": {"type": "integer", "description": "Overall execution timeout from 3 to 30 seconds; defaults to 15."}
                 },
                 "required": ["candidate_id"]
             }
