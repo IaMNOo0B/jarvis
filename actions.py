@@ -394,6 +394,24 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "record_task_outcome",
+            "description": "Save an observed task episode with success, partial, or failure status and evidence, so later tasks can learn from real outcomes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {"type": "string", "description": "Concise description of the task that was actually attempted."},
+                    "status": {"type": "string", "enum": ["success", "partial", "failure"], "description": "Observed task result, not an assumption."},
+                    "result": {"type": "string", "description": "What happened, including any partial failure."},
+                    "evidence": {"type": "array", "items": {"type": "string"}, "description": "Tool results, test results, changed paths, or other evidence references."},
+                    "user_feedback": {"type": "string", "description": "Sir's actual feedback, only when he provided it."}
+                },
+                "required": ["task", "status", "result"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "validate_learned_knowledge",
             "description": "Record concrete validation evidence and outcome for an existing learning record.",
             "parameters": {
