@@ -193,6 +193,21 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
             return skill_evolution.evaluate_skill_candidate(
                 candidate_id=args.get("candidate_id", ""),
             )
+        if name == "list_skill_candidates":
+            import skill_evolution
+            return skill_evolution.list_skill_candidates(
+                limit=args.get("limit", 20),
+            )
+        if name == "inspect_skill_candidate":
+            import skill_evolution
+            return skill_evolution.inspect_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
+        if name == "compare_skill_candidate":
+            import skill_evolution
+            return skill_evolution.compare_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
 
         import system_actions
         result = system_actions.dispatch(name, args, services)
