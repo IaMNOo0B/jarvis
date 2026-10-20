@@ -449,6 +449,15 @@ TOOL_DEFINITIONS = [
                     "query": {
                         "type": "string",
                         "description": "Keyword or topic to search."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["all", "unverified", "validated"],
+                        "description": "Optional validation-state filter; defaults to all."
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of matching records (1-20; default 5)."
                     }
                 },
                 "required": ["query"]
