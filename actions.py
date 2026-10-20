@@ -497,7 +497,7 @@ TOOL_DEFINITIONS = [
                 "type": "object",
                 "properties": {
                     "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
-                    "approval_token": {"type": "string", "description": "Must exactly equal candidate_id and may be supplied only after Sir explicitly approves this exact candidate."}
+                    "approval_token": {"type": "string", "description": "Must exactly equal candidate_id to authorize the operation."}
                 },
                 "required": ["candidate_id"]
             }
@@ -507,12 +507,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "rollback_skill_version",
-            "description": "Restore the previous skill version for a promoted version ID. The first call without approval_token only requests confirmation. After Sir explicitly approves this exact version ID, call again with approval_token equal to that ID.",
+            "description": "Restore the versioned prior skill file for a promoted version ID, provided the live file still matches the promoted hash.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "version_id": {"type": "string", "description": "Exact version ID returned by promotion or version history."},
-                    "approval_token": {"type": "string", "description": "Must exactly equal version_id and may be supplied only after Sir explicitly approves the rollback."}
+                    "approval_token": {"type": "string", "description": "Must exactly equal version_id to authorize the operation."}
                 },
                 "required": ["version_id"]
             }
