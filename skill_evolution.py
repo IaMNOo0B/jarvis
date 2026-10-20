@@ -515,6 +515,11 @@ def rollback_skill_version(version_id: str, approval_token: str = "") -> str:
                 "Inspect the current diff and create a reviewed recovery action."
             )
 
+        with open(live_path, "rb") as handle:
+            promoted_bytes = handle.read()
+        if hashlib.sha256(promoted_bytes).hexdigest() != manifest.get("promoted_sha256"):
+            return "Rollback refused: live file changed while it was being inspected."
+
         if manifest.get("previous_exists"):
             backup_path = os.path.join(version_folder, "previous_skill.py")
             with open(backup_path, "rb") as handle:
@@ -524,17 +529,38 @@ def rollback_skill_version(version_id: str, approval_token: str = "") -> str:
             _atomic_write_bytes(live_path, backup_bytes)
             restored_sha = _sha256_file(live_path)
             if restored_sha != manifest.get("previous_sha256"):
-                return "CRITICAL: rollback file verification failed; inspect the live skill before restarting."
+                try:
+                    _atomic_write_bytes(live_path, promoted_bytes)
+                except OSError as recovery_error:
+                    return f"CRITICAL: rollback verification failed ({recovery_error}); inspect the live skill before restarting."
+                return "Rollback verification failed; the promoted file was restored to keep the current version consistent."
         else:
             if not os.path.isfile(live_path) or os.path.islink(live_path):
                 return "Rollback refused: expected newly created skill file is missing or is a symlink."
             os.remove(live_path)
             restored_sha = None
 
+        old_state = manifest.get("state")
         manifest["state"] = "ROLLED_BACK"
         manifest["rolled_back_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         manifest["restored_sha256"] = restored_sha
-        _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+        try:
+            _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+        except OSError as write_error:
+            try:
+                _atomic_write_bytes(live_path, promoted_bytes)
+                manifest["state"] = old_state
+                manifest.pop("rolled_back_at", None)
+                manifest.pop("restored_sha256", None)
+                return (
+                    f"Rollback metadata could not be recorded ({write_error}); "
+                    "the previously promoted file was restored and the rollback was cancelled."
+                )
+            except OSError as recovery_error:
+                return (
+                    f"CRITICAL: rollback metadata write failed ({write_error}) and recovery "
+                    f"failed ({recovery_error}). Inspect the live skill before restarting."
+                )
 
         candidate_id = str(manifest.get("candidate_id") or "")
         try:
