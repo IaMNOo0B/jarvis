@@ -8,3 +8,4 @@ __pycache__/
 *.wav
 secrets.local.yaml
 settings.local.yaml
+skill_candidates/
