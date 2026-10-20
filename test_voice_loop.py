@@ -90,7 +90,6 @@ def main() -> int:
         tr = Transcriber(
             vcfg.get("stt_model", "base"),
             language=vcfg.get("stt_language", "auto"),
-            initial_prompt=vcfg.get("stt_initial_prompt", None),
         )
         tr.preload()
         text = tr.transcribe(audio16)
