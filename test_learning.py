@@ -387,6 +387,153 @@ def handle(tool_name, args, services=None):
         self.assertEqual(report["report"]["candidate_passed"], 1)
         self.assertFalse(report["activated"])
 
+    def test_promoted_version_is_marked_active_when_imported(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "activation_demo", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "activation_demo"
+SKILL_DESCRIPTION = "Old version."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "activation_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "old"
+'''
+        candidate = '''SKILL_NAME = "activation_demo"
+SKILL_DESCRIPTION = "New version."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "activation_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "new"
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        cases = [{
+            "name": "existing behaviour",
+            "kind": "regression",
+            "tool_name": "activation_demo_run",
+            "args": {},
+            "expected_equals": "new",
+        }]
+        staged = skill_evolution.stage_skill_candidate("activation_demo", candidate, tests=cases)
+        candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(report["status"], "TEST_PASS_REVIEW_REQUIRED", report)
+        promoted = json.loads(skill_evolution.promote_skill_candidate(candidate_id, approval_token=candidate_id))
+        active = skill_evolution.mark_skill_version_active("activation_demo", live_path)
+        self.assertTrue(active["activated"], active)
+        self.assertEqual(active["version_id"], promoted["version_id"])
+        with open(os.path.join(skill_evolution.CANDIDATE_ROOT, candidate_id, "candidate.json"), encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        self.assertTrue(metadata["activated"])
+        self.assertEqual(metadata["state"], "ACTIVE")
+        rolled_back = json.loads(skill_evolution.rollback_skill_version(
+            promoted["version_id"], approval_token=promoted["version_id"]
+        ))
+        self.assertEqual(rolled_back["status"], "ROLLED_BACK")
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), baseline)
+
+    def test_loader_auto_rolls_back_a_failed_matching_promotion(self):
+        from skills import loader
+        old_user = loader.USER_SKILLS_DIR
+        old_bundled = loader.BUNDLED_SKILLS_DIR
+        name = "startup_recovery_demo"
+        previous_source = '''SKILL_NAME = "startup_recovery_demo"
+SKILL_DESCRIPTION = "Previous working version."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "startup_recovery_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "previous-ok"
+'''
+        broken_source = '''raise RuntimeError("simulated failed promoted import")
+SKILL_NAME = "startup_recovery_demo"
+SKILL_DESCRIPTION = "Broken promoted version."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "startup_recovery_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "broken"
+'''
+        candidate_id = name + "-" + "a" * 10
+        version_id = name + "-20261020T210000-" + "b" * 8
+        try:
+            user_root = os.path.join(self.temp.name, "user_skills")
+            bundled_root = os.path.join(self.temp.name, "bundled_skills")
+            version_root = os.path.join(self.temp.name, "skill_candidates", "versions")
+            skill_evolution.LIVE_SKILLS_DIR = user_root
+            skill_evolution.CANDIDATE_ROOT = os.path.join(self.temp.name, "skill_candidates")
+            loader.USER_SKILLS_DIR = user_root
+            loader.BUNDLED_SKILLS_DIR = bundled_root
+            live_path = os.path.join(user_root, name, "skill.py")
+            os.makedirs(os.path.dirname(live_path), exist_ok=True)
+            os.makedirs(os.path.join(bundled_root, name), exist_ok=True)
+            with open(live_path, "w", encoding="utf-8") as handle:
+                handle.write(broken_source)
+            with open(os.path.join(bundled_root, name, "skill.py"), "w", encoding="utf-8") as handle:
+                handle.write(previous_source)
+            version_dir = os.path.join(version_root, version_id)
+            os.makedirs(version_dir, exist_ok=True)
+            backup = os.path.join(version_dir, "previous_skill.py")
+            with open(backup, "w", encoding="utf-8") as handle:
+                handle.write(previous_source)
+            digest = __import__("hashlib").sha256
+            manifest = {
+                "version_id": version_id,
+                "name": name,
+                "candidate_id": candidate_id,
+                "state": "PROMOTED_PENDING_RESTART",
+                "promoted_sha256": digest(broken_source.encode("utf-8")).hexdigest(),
+                "previous_exists": True,
+                "previous_sha256": digest(previous_source.encode("utf-8")).hexdigest(),
+                "rollback_available": True,
+            }
+            with open(os.path.join(version_dir, "manifest.json"), "w", encoding="utf-8") as handle:
+                json.dump(manifest, handle)
+
+            found = loader.discover()
+            self.assertIn(name, found)
+            self.assertIn("module", found[name], found[name])
+            self.assertEqual(found[name]["module"].handle(name + "_run", {}, None), "previous-ok")
+            self.assertTrue(found[name]["recovery"]["recovered"])
+            with open(live_path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), previous_source)
+            with open(os.path.join(version_dir, "manifest.json"), encoding="utf-8") as handle:
+                after = json.load(handle)
+            self.assertEqual(after["state"], "AUTO_ROLLED_BACK_IMPORT_FAILURE")
+        finally:
+            loader.USER_SKILLS_DIR = old_user
+            loader.BUNDLED_SKILLS_DIR = old_bundled
+            skill_evolution.CANDIDATE_ROOT = self.temp.name
+            skill_evolution.LIVE_SKILLS_DIR = os.path.join(self.temp.name, "live")
+
+    def test_auto_recovery_refuses_to_overwrite_a_manually_changed_file(self):
+        name = "manual_drift_demo"
+        previous_source = "previous version"
+        promoted_source = "promoted version"
+        edited_source = "Sir's manual edit"
+        skill_evolution.LIVE_SKILLS_DIR = os.path.join(self.temp.name, "live")
+        skill_evolution.CANDIDATE_ROOT = os.path.join(self.temp.name, "skill_candidates")
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, name, "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(edited_source)
+        version_id = name + "-20261020T210001-" + "c" * 8
+        version_dir = os.path.join(skill_evolution.CANDIDATE_ROOT, "versions", version_id)
+        os.makedirs(version_dir, exist_ok=True)
+        import hashlib
+        manifest = {
+            "version_id": version_id,
+            "name": name,
+            "candidate_id": name + "-" + "d" * 10,
+            "state": "PROMOTED_PENDING_RESTART",
+            "promoted_sha256": hashlib.sha256(promoted_source.encode("utf-8")).hexdigest(),
+            "previous_exists": True,
+            "previous_sha256": hashlib.sha256(previous_source.encode("utf-8")).hexdigest(),
+        }
+        with open(os.path.join(version_dir, "previous_skill.py"), "w", encoding="utf-8") as handle:
+            handle.write(previous_source)
+        with open(os.path.join(version_dir, "manifest.json"), "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle)
+        result = skill_evolution.recover_failed_promotion_on_import_error(name, live_path, "ImportError")
+        self.assertFalse(result["recovered"])
+        self.assertIn("hash", result["reason"].lower())
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), edited_source)
+
     def test_versioned_promotion_requires_confirmation_and_rollback_restores_baseline(self):
         live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "promote_demo", "skill.py")
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
