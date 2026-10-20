@@ -46,11 +46,20 @@ class ProtocolsTests(unittest.TestCase):
         transcription_prompt = protocols.load_prompt("STT_TRANSCRIPTION_PROMPT")
         self.assertIn("i don't know", hedge_patterns)
         self.assertIn("Hey Jarvis", transcription_prompt)
+        self.assertIn("If a request must be declined for safety or legality", protocols.load_prompt("SYSTEM_PROMPT"))
 
     def test_hedge_detection_uses_txt_rules(self):
         import persona
         self.assertTrue(persona.is_hedged("I do not know the answer yet."))
         self.assertFalse(persona.is_hedged("I checked the source and verified the result."))
+
+    def test_safety_refusal_is_not_treated_as_a_hedge(self):
+        import persona
+        self.assertFalse(
+            persona.is_hedged(
+                "I cannot assist with that unsafe request, but I can offer a safe alternative."
+            )
+        )
 
     def test_screen_watcher_prompt_is_editable(self):
         prompt = protocols.load_prompt("SCREEN_WATCHER_PROMPT")
