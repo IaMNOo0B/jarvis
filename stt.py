@@ -21,7 +21,7 @@ from protocols import load_prompt
 
 
 class Transcriber:
-    def __init__(self, model_name: str = "base", language: str = "auto")
+    def __init__(self, model_name: str = "base", language: str = "auto"):
         # Auto-upgrade English-only models (base.en -> base) so Hinglish
         # isn't mangled — unless English was explicitly requested.
         if (isinstance(model_name, str) and model_name.endswith(".en")
