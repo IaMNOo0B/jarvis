@@ -122,6 +122,22 @@ def handle(tool_name, args, services=None):
         self.assertFalse(metadata["activated"])
         self.assertFalse(metadata["tests_run"])
 
+    def test_class_body_and_decorator_side_effect_patterns_are_rejected(self):
+        source = '''SKILL_NAME = "risk_skill"
+SKILL_DESCRIPTION = "Import-time side-effect test."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "risk_tool", "parameters": {"type": "object"}}}]
+def decorate(fn):
+    return fn
+@decorate
+def handle(tool_name, args, services=None):
+    return None
+'''
+        message = skill_evolution.stage_skill_candidate("risk_skill", source)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        result = skill_evolution.evaluate_skill_candidate(candidate_id)
+        self.assertIn("STATIC_FAIL", result)
+        self.assertIn("decorators that would execute during import", result)
+
     def test_top_level_execution_is_rejected_without_running_candidate(self):
         source = '''SKILL_NAME = "bad_skill"
 SKILL_DESCRIPTION = "Must never run."
