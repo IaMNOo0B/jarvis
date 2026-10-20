@@ -24,6 +24,7 @@ CANDIDATE_ROOT = user_file("skill_candidates")
 LIVE_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}-[0-9a-f]{10}$")
+_VERSION_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}-[0-9]{8}T[0-9]{6}-[0-9a-f]{8}$")
 _MAX_SOURCE_BYTES = 100_000
 
 
@@ -58,7 +59,18 @@ def _candidate_dir(candidate_id: str) -> str:
 
 
 def _live_skill_path(name: str) -> str:
-    return os.path.abspath(os.path.join(LIVE_SKILLS_DIR, name, "skill.py"))
+    name = str(name or "")
+    if not _NAME_RE.fullmatch(name):
+        raise ValueError("Invalid live skill name.")
+    root = os.path.realpath(LIVE_SKILLS_DIR)
+    raw_folder = os.path.join(LIVE_SKILLS_DIR, name)
+    raw_target = os.path.join(raw_folder, "skill.py")
+    if os.path.islink(raw_folder) or os.path.islink(raw_target):
+        raise ValueError("Live skill folders and skill.py files must not be symlinks.")
+    target = os.path.realpath(raw_target)
+    if os.path.commonpath([root, target]) != root:
+        raise ValueError("Live skill path resolves outside the skills directory.")
+    return target
 
 
 def _sha256_file(path: str) -> str | None:
@@ -70,6 +82,54 @@ def _sha256_file(path: str) -> str | None:
         return digest.hexdigest()
     except FileNotFoundError:
         return None
+
+
+def _atomic_write_bytes(path: str, payload: bytes) -> None:
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix="skill-version-", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_text(path: str, payload: str) -> None:
+    _atomic_write_bytes(path, payload.encode("utf-8"))
+
+
+def _version_root() -> str:
+    return os.path.join(os.path.realpath(CANDIDATE_ROOT), "versions")
+
+
+def _version_dir(version_id: str) -> str:
+    version_id = str(version_id or "").strip()
+    if not _VERSION_RE.fullmatch(version_id):
+        raise ValueError("Invalid version ID.")
+    root = os.path.realpath(_version_root())
+    target = os.path.realpath(os.path.join(root, version_id))
+    if os.path.commonpath([root, target]) != root:
+        raise ValueError("Version path resolves outside the version archive.")
+    return target
+
+
+def _read_version(version_id: str) -> tuple[str, dict]:
+    folder = _version_dir(version_id)
+    with open(os.path.join(folder, "manifest.json"), "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if not isinstance(manifest, dict) or manifest.get("version_id") != version_id:
+        raise ValueError("Version manifest does not match the requested version ID.")
+    if not _NAME_RE.fullmatch(str(manifest.get("name") or "")):
+        raise ValueError("Version manifest contains an invalid skill name.")
+    return folder, manifest
 
 
 def _read_candidate(candidate_id: str) -> tuple[str, dict, str]:
@@ -278,6 +338,220 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
         metadata["test_report"] = {"error": f"{type(exc).__name__}: {exc}"}
         _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
         return f"Candidate test runner failed: {type(exc).__name__}: {exc}"
+
+
+def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
+    """Atomically install a tested candidate with a versioned rollback snapshot."""
+    if str(approval_token or "") != str(candidate_id or ""):
+        return (
+            f"CONFIRM_REQUIRED:{candidate_id}. No files were changed. "
+            "Ask Sir to explicitly approve promotion of this exact candidate ID; "
+            "then pass that exact ID as approval_token."
+        )
+    try:
+        folder, metadata, candidate_source = _read_candidate(candidate_id)
+        name = str(metadata["name"])
+        source_sha = hashlib.sha256(candidate_source.encode("utf-8")).hexdigest()
+        if metadata.get("sha256") != source_sha:
+            return "Promotion refused: candidate source no longer matches its recorded hash."
+        if not metadata.get("tests_run") or metadata.get("tested_source_sha256") != source_sha:
+            return "Promotion refused: this exact candidate source has not completed its test suite."
+        accepted_states = {"TEST_PASS_REVIEW_REQUIRED", "TEST_PASS_NO_REGRESSION_COVERAGE"}
+        report = metadata.get("test_report") or {}
+        if metadata.get("state") not in accepted_states or report.get("status") not in accepted_states:
+            return f"Promotion refused: latest candidate state is {metadata.get('state')!r}, not a passing review state."
+        if report.get("candidate_failed", 0) != 0:
+            return "Promotion refused: one or more candidate tests failed."
+        if metadata.get("activated") or metadata.get("promoted"):
+            return "Promotion refused: candidate has already been promoted; inspect its version history."
+        live_path = _live_skill_path(name)
+        current_sha = _sha256_file(live_path)
+        tested_baseline_sha = metadata.get("tested_baseline_sha256")
+        if current_sha != tested_baseline_sha:
+            return (
+                "Promotion refused: the live skill changed after testing. "
+                "Compare the new baseline, then run the candidate tests again."
+            )
+
+        previous_bytes = None
+        if current_sha is not None:
+            with open(live_path, "rb") as handle:
+                previous_bytes = handle.read()
+            if hashlib.sha256(previous_bytes).hexdigest() != current_sha:
+                return "Promotion refused: could not verify the live baseline before backup."
+
+        created = datetime.now().astimezone()
+        version_id = f"{name}-{created.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
+        version_folder = _version_dir(version_id)
+        os.makedirs(version_folder, exist_ok=False)
+        previous_sha = current_sha
+        if previous_bytes is not None:
+            _atomic_write_bytes(os.path.join(version_folder, "previous_skill.py"), previous_bytes)
+
+        manifest = {
+            "version_id": version_id,
+            "name": name,
+            "candidate_id": candidate_id,
+            "created_at": created.isoformat(timespec="seconds"),
+            "state": "PROMOTION_PREPARED",
+            "live_relative_path": os.path.join(name, "skill.py"),
+            "previous_exists": previous_bytes is not None,
+            "previous_sha256": previous_sha,
+            "promoted_sha256": source_sha,
+            "backup_file": "previous_skill.py" if previous_bytes is not None else None,
+            "tested_at": metadata.get("tested_at"),
+            "tested_baseline_sha256": tested_baseline_sha,
+            "tests_status": report.get("status"),
+            "rollback_available": previous_bytes is not None,
+        }
+        _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+
+        try:
+            _atomic_write_text(live_path, candidate_source)
+            if _sha256_file(live_path) != source_sha:
+                raise OSError("Installed skill hash did not match the tested candidate hash.")
+            manifest["state"] = "PROMOTED_PENDING_RESTART"
+            manifest["promoted_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+            _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+        except Exception as exc:
+            try:
+                if previous_bytes is not None:
+                    _atomic_write_bytes(live_path, previous_bytes)
+                elif os.path.isfile(live_path) and not os.path.islink(live_path):
+                    os.remove(live_path)
+                manifest["state"] = "PROMOTION_FAILED_RESTORED"
+                manifest["failure"] = f"{type(exc).__name__}: {exc}"
+                _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+            except Exception as rollback_exc:
+                return (
+                    f"CRITICAL: promotion verification failed ({exc}) and automatic recovery "
+                    f"also failed ({rollback_exc}). Version archive: {version_id}. "
+                    "Do not restart Jarvis until the live skill has been inspected."
+                )
+            return f"Promotion failed and the previous live file was restored: {exc}. Version archive: {version_id}."
+
+        metadata["state"] = "PROMOTED_PENDING_RESTART"
+        metadata["promoted"] = True
+        metadata["promoted_at"] = manifest["promoted_at"]
+        metadata["version_id"] = version_id
+        metadata["promoted_sha256"] = source_sha
+        metadata["activated"] = False
+        _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
+        return json.dumps({
+            "status": "PROMOTED_PENDING_RESTART",
+            "candidate_id": candidate_id,
+            "version_id": version_id,
+            "live_path": live_path,
+            "installed_sha256": source_sha,
+            "previous_sha256": previous_sha,
+            "backup_saved": previous_bytes is not None,
+            "restart_required": True,
+            "activated": False,
+            "message": "Candidate file was atomically installed and versioned. Restart Jarvis to load it; tests do not prove it is risk-free.",
+        }, indent=2, ensure_ascii=False)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return f"Promotion refused or failed without a verified install: {type(exc).__name__}: {exc}"
+
+
+def rollback_skill_version(version_id: str, approval_token: str = "") -> str:
+    """Restore a promoted version's previous file after exact-version approval."""
+    if str(approval_token or "") != str(version_id or ""):
+        return (
+            f"CONFIRM_REQUIRED:{version_id}. No files were changed. "
+            "Ask Sir to explicitly approve rollback of this exact version ID; "
+            "then pass that exact ID as approval_token."
+        )
+    try:
+        version_folder, manifest = _read_version(version_id)
+        if manifest.get("state") == "ROLLED_BACK":
+            return f"Version {version_id} has already been rolled back."
+        if manifest.get("state") != "PROMOTED_PENDING_RESTART":
+            return f"Rollback refused: version state is {manifest.get('state')!r}."
+        name = str(manifest["name"])
+        live_path = _live_skill_path(name)
+        current_sha = _sha256_file(live_path)
+        if current_sha != manifest.get("promoted_sha256"):
+            return (
+                "Rollback refused: the live file differs from this promotion. "
+                "Inspect the current diff and create a reviewed recovery action."
+            )
+
+        if manifest.get("previous_exists"):
+            backup_path = os.path.join(version_folder, "previous_skill.py")
+            with open(backup_path, "rb") as handle:
+                backup_bytes = handle.read()
+            if hashlib.sha256(backup_bytes).hexdigest() != manifest.get("previous_sha256"):
+                return "Rollback refused: the archived previous file failed its SHA-256 check."
+            _atomic_write_bytes(live_path, backup_bytes)
+            restored_sha = _sha256_file(live_path)
+            if restored_sha != manifest.get("previous_sha256"):
+                return "CRITICAL: rollback file verification failed; inspect the live skill before restarting."
+        else:
+            if not os.path.isfile(live_path) or os.path.islink(live_path):
+                return "Rollback refused: expected newly created skill file is missing or is a symlink."
+            os.remove(live_path)
+            restored_sha = None
+
+        manifest["state"] = "ROLLED_BACK"
+        manifest["rolled_back_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        manifest["restored_sha256"] = restored_sha
+        _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+
+        candidate_id = str(manifest.get("candidate_id") or "")
+        try:
+            candidate_folder, candidate_metadata, _ = _read_candidate(candidate_id)
+            candidate_metadata["state"] = "ROLLED_BACK"
+            candidate_metadata["promoted"] = False
+            candidate_metadata["activated"] = False
+            candidate_metadata["rolled_back_at"] = manifest["rolled_back_at"]
+            _write_json_atomic(os.path.join(candidate_folder, "candidate.json"), candidate_metadata)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+
+        return json.dumps({
+            "status": "ROLLED_BACK",
+            "version_id": version_id,
+            "live_path": live_path,
+            "restored_sha256": restored_sha,
+            "previous_file_restored": bool(manifest.get("previous_exists")),
+            "restart_required": True,
+            "message": "The live file was restored atomically. Restart Jarvis to load the restored skill.",
+        }, indent=2, ensure_ascii=False)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return f"Rollback refused or failed: {type(exc).__name__}: {exc}"
+
+
+def list_skill_versions(limit: int = 20) -> str:
+    """List version manifests and rollback state without executing skill code."""
+    root = _version_root()
+    if not os.path.isdir(root):
+        return "No promoted skill versions found."
+    rows = []
+    try:
+        for version_id in sorted(os.listdir(root), reverse=True):
+            if not _VERSION_RE.fullmatch(version_id):
+                continue
+            try:
+                _, manifest = _read_version(version_id)
+                rows.append({
+                    "version_id": version_id,
+                    "name": manifest.get("name"),
+                    "candidate_id": manifest.get("candidate_id"),
+                    "state": manifest.get("state"),
+                    "created_at": manifest.get("created_at"),
+                    "promoted_at": manifest.get("promoted_at"),
+                    "rolled_back_at": manifest.get("rolled_back_at"),
+                    "previous_sha256": manifest.get("previous_sha256"),
+                    "promoted_sha256": manifest.get("promoted_sha256"),
+                    "rollback_available": manifest.get("rollback_available", False),
+                })
+            except (OSError, ValueError, json.JSONDecodeError):
+                rows.append({"version_id": version_id, "state": "manifest_error"})
+            if len(rows) >= max(1, min(int(limit), 50)):
+                break
+    except OSError as exc:
+        return f"Could not list skill versions: {exc}"
+    return "Skill version history:\n" + json.dumps(rows, indent=2, ensure_ascii=False)
 
 
 def list_skill_candidates(limit: int = 20) -> str:
