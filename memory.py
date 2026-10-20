@@ -125,6 +125,7 @@ class MemoryBank:
                 "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "title": title,
                 "content": content,
+                "record_type": "knowledge",
                 "source": source,
                 "evidence": evidence_items,
                 "confidence": confidence,
@@ -156,6 +157,72 @@ class MemoryBank:
             f"Saved learning record '{title}' (ID {item['id']}) as unverified. "
             "Use its evidence and outcome to review it before relying on it as validated."
         )
+
+    def record_task_outcome(
+        self,
+        task: str,
+        status: str,
+        result: str,
+        evidence=None,
+        user_feedback: str = "",
+    ) -> str:
+        """Keep a searchable task episode with observed outcome and evidence."""
+        task = str(task or "").strip()
+        result = str(result or "").strip()
+        status = str(status or "").strip().lower()
+        user_feedback = str(user_feedback or "").strip()
+        if not task or not result:
+            return "Task outcome not saved: task and result are required."
+        if status not in {"success", "partial", "failure"}:
+            return "Task outcome not saved: status must be success, partial, or failure."
+        try:
+            proof = _text_list(evidence)
+        except ValueError as exc:
+            return f"Task outcome not saved: {exc}"
+
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        reward = {"success": 1.0, "partial": 0.0, "failure": -1.0}[status]
+        validated = bool(proof)
+        item = {
+            "id": uuid.uuid4().hex,
+            "timestamp": now,
+            "title": f"Task outcome: {task[:120]}",
+            "content": result,
+            "record_type": "task_outcome",
+            "source": "observed task outcome",
+            "evidence": proof,
+            "confidence": 1.0 if validated else None,
+            "outcome": status,
+            "outcome_status": status,
+            "reward": reward,
+            "user_feedback": user_feedback,
+            "tags": ["task-outcome", status],
+            "validation_status": "validated" if validated else "unverified",
+            "validation_evidence": proof,
+            "validated_at": now if validated else None,
+            "validation_outcome": f"Recorded task status: {status}" if validated else "",
+        }
+        with self._lock:
+            entries = self._load()
+            entries.append(item)
+            self._save(entries)
+
+        try:
+            with open(NOTES_FILE, "a", encoding="utf-8") as f:
+                f.write(f"\n## [{now}] {item['title']}\n")
+                f.write(f"**Type:** task outcome ({status})\n")
+                f.write(f"**Reward signal:** {reward:+.1f}\n")
+                f.write(f"**Validation:** {item['validation_status']}\n")
+                if proof:
+                    f.write("**Evidence:** " + "; ".join(proof) + "\n")
+                if user_feedback:
+                    f.write(f"**User feedback:** {user_feedback}\n")
+                f.write(f"\n{result}\n\n---\n")
+        except OSError:
+            pass
+
+        validation = "with evidence" if validated else "as unverified (no evidence supplied)"
+        return f"Recorded task outcome '{task}' as {status} {validation}; reward signal {reward:+.1f}."
 
     def validate_knowledge(self, entry_id: str, evidence, outcome: str) -> str:
         """Mark a record reviewed only when concrete validation evidence is supplied."""
@@ -225,6 +292,12 @@ class MemoryBank:
                 results.append("  Evidence: " + "; ".join(evidence))
             if item.get("outcome"):
                 results.append("  Outcome: " + str(item["outcome"]))
+            if item.get("outcome_status"):
+                results.append("  Task status: " + str(item["outcome_status"]))
+            if isinstance(item.get("reward"), (int, float)):
+                results.append(f"  Reward signal: {item['reward']:+.1f}")
+            if item.get("user_feedback"):
+                results.append("  User feedback: " + str(item["user_feedback"]))
             if validation_evidence:
                 results.append("  Validation evidence: " + "; ".join(validation_evidence))
             if item.get("validation_outcome"):
