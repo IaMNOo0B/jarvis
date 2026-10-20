@@ -213,6 +213,149 @@ def handle(tool_name, args, services=None):
         self.assertIn("STATIC_FAIL", result)
         self.assertIn("decorators that would execute during import", result)
 
+    def test_candidate_feature_and_baseline_regression_suite(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "demo_suite", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "demo_suite"
+SKILL_DESCRIPTION = "Known-good baseline."
+TOOL_DEFINITIONS = [
+    {"type": "function", "function": {"name": "demo_suite_echo", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}}},
+]
+def handle(tool_name, args, services=None):
+    if tool_name == "demo_suite_echo":
+        return "OK:" + str((args or {}).get("text", ""))
+    return None
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        candidate = '''SKILL_NAME = "demo_suite"
+SKILL_DESCRIPTION = "Echo and uppercase text."
+TOOL_DEFINITIONS = [
+    {"type": "function", "function": {"name": "demo_suite_echo", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}}},
+    {"type": "function", "function": {"name": "demo_suite_upper", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}}},
+]
+def handle(tool_name, args, services=None):
+    args = args or {}
+    if tool_name == "demo_suite_echo":
+        return "OK:" + str(args.get("text", ""))
+    if tool_name == "demo_suite_upper":
+        return str(args.get("text", "")).upper()
+    return None
+'''
+        test_cases = [
+            {
+                "name": "existing echo behaviour",
+                "kind": "regression",
+                "tool_name": "demo_suite_echo",
+                "args": {"text": "hello"},
+                "expected_equals": "OK:hello",
+            },
+            {
+                "name": "new uppercase feature",
+                "kind": "feature",
+                "tool_name": "demo_suite_upper",
+                "args": {"text": "hello"},
+                "expected_equals": "HELLO",
+            },
+        ]
+        message = skill_evolution.stage_skill_candidate(
+            "demo_suite", candidate, source="test fixture", tests=test_cases
+        )
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        static = skill_evolution.evaluate_skill_candidate(candidate_id)
+        self.assertIn("STATIC_PASS_REVIEW_REQUIRED", static)
+        report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(report["status"], "TEST_PASS_REVIEW_REQUIRED", report)
+        self.assertEqual(report["report"]["candidate_passed"], 2)
+        self.assertEqual(report["report"]["candidate_failed"], 0)
+        self.assertEqual(report["report"]["regression_case_count"], 1)
+        self.assertEqual(report["report"]["candidate_regressions"], [])
+        self.assertFalse(report["activated"])
+        with open(os.path.join(self.temp.name, candidate_id, "candidate.json"), encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        self.assertTrue(metadata["tests_run"])
+        self.assertFalse(metadata["activated"])
+
+    def test_candidate_regression_is_detected(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "regress_demo", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "regress_demo"
+SKILL_DESCRIPTION = "Known-good baseline."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "regress_demo_echo", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "baseline-ok"
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        candidate = '''SKILL_NAME = "regress_demo"
+SKILL_DESCRIPTION = "Broken replacement."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "regress_demo_echo", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "broken"
+'''
+        test_cases = [{
+            "name": "preserve existing echo",
+            "kind": "regression",
+            "tool_name": "regress_demo_echo",
+            "args": {},
+            "expected_equals": "baseline-ok",
+        }]
+        message = skill_evolution.stage_skill_candidate("regress_demo", candidate, tests=test_cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(report["status"], "TEST_FAIL", report)
+        self.assertEqual(report["report"]["candidate_regressions"], ["preserve existing echo"])
+        self.assertFalse(report["activated"])
+
+    def test_candidate_test_runner_blocks_network_imports(self):
+        candidate = '''import socket
+SKILL_NAME = "blocked_demo"
+SKILL_DESCRIPTION = "Network import should be blocked."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "blocked_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "unexpected"
+'''
+        test_cases = [{
+            "name": "blocked network access",
+            "kind": "feature",
+            "tool_name": "blocked_demo_run",
+            "args": {},
+            "expected_contains": "unexpected",
+        }]
+        message = skill_evolution.stage_skill_candidate("blocked_demo", candidate, tests=test_cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(report["status"], "TEST_BLOCKED", report)
+        self.assertFalse(report["activated"])
+
+    def test_candidate_test_runner_blocks_reads_outside_temporary_area(self):
+        secret_path = os.path.join(self.temp.name, "outside_file.txt")
+        with open(secret_path, "w", encoding="utf-8") as handle:
+            handle.write("must not be readable")
+        candidate = f'''SKILL_NAME = "file_guard_demo"
+SKILL_DESCRIPTION = "Filesystem guard test."
+TOOL_DEFINITIONS = [{{"type": "function", "function": {{"name": "file_guard_demo_read", "parameters": {{"type": "object"}}}}}}]
+def handle(tool_name, args, services=None):
+    try:
+        open({secret_path!r}, "r", encoding="utf-8").read()
+    except PermissionError:
+        return "blocked"
+    return "unexpected-read"
+'''
+        test_cases = [{
+            "name": "outside read blocked",
+            "kind": "feature",
+            "tool_name": "file_guard_demo_read",
+            "args": {},
+            "expected_equals": "blocked",
+        }]
+        message = skill_evolution.stage_skill_candidate("file_guard_demo", candidate, tests=test_cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(report["status"], "TEST_PASS_NO_REGRESSION_COVERAGE", report)
+        self.assertEqual(report["report"]["candidate_passed"], 1)
+        self.assertFalse(report["activated"])
+
     def test_top_level_execution_is_rejected_without_running_candidate(self):
         source = '''SKILL_NAME = "bad_skill"
 SKILL_DESCRIPTION = "Must never run."
