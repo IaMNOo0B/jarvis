@@ -397,20 +397,36 @@ def handle(tool_name, args, services=None):
     return "old"
 '''
         candidate = '''SKILL_NAME = "activation_demo"
-SKILL_DESCRIPTION = "New version."
-TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "activation_demo_run", "parameters": {"type": "object"}}}]
+SKILL_DESCRIPTION = "Preserves the existing tool and adds a new tool."
+TOOL_DEFINITIONS = [
+    {"type": "function", "function": {"name": "activation_demo_run", "parameters": {"type": "object"}}},
+    {"type": "function", "function": {"name": "activation_demo_new", "parameters": {"type": "object"}}},
+]
 def handle(tool_name, args, services=None):
-    return "new"
+    if tool_name == "activation_demo_run":
+        return "old"
+    if tool_name == "activation_demo_new":
+        return "new"
+    return None
 '''
         with open(live_path, "w", encoding="utf-8") as handle:
             handle.write(baseline)
-        cases = [{
-            "name": "existing behaviour",
-            "kind": "regression",
-            "tool_name": "activation_demo_run",
-            "args": {},
-            "expected_equals": "new",
-        }]
+        cases = [
+            {
+                "name": "existing behaviour",
+                "kind": "regression",
+                "tool_name": "activation_demo_run",
+                "args": {},
+                "expected_equals": "old",
+            },
+            {
+                "name": "new feature",
+                "kind": "feature",
+                "tool_name": "activation_demo_new",
+                "args": {},
+                "expected_equals": "new",
+            },
+        ]
         staged = skill_evolution.stage_skill_candidate("activation_demo", candidate, tests=cases)
         candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
         report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
@@ -461,15 +477,15 @@ def handle(tool_name, args, services=None):
             live_path = os.path.join(user_root, name, "skill.py")
             os.makedirs(os.path.dirname(live_path), exist_ok=True)
             os.makedirs(os.path.join(bundled_root, name), exist_ok=True)
-            with open(live_path, "w", encoding="utf-8") as handle:
-                handle.write(broken_source)
-            with open(os.path.join(bundled_root, name, "skill.py"), "w", encoding="utf-8") as handle:
-                handle.write(previous_source)
+            with open(live_path, "wb") as handle:
+                handle.write(broken_source.encode("utf-8"))
+            with open(os.path.join(bundled_root, name, "skill.py"), "wb") as handle:
+                handle.write(previous_source.encode("utf-8"))
             version_dir = os.path.join(version_root, version_id)
             os.makedirs(version_dir, exist_ok=True)
             backup = os.path.join(version_dir, "previous_skill.py")
-            with open(backup, "w", encoding="utf-8") as handle:
-                handle.write(previous_source)
+            with open(backup, "wb") as handle:
+                handle.write(previous_source.encode("utf-8"))
             digest = __import__("hashlib").sha256
             manifest = {
                 "version_id": version_id,
