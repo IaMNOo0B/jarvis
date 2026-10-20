@@ -32,6 +32,7 @@ class PackagingSpecTests(unittest.TestCase):
         self.assertEqual(len(analysis_calls), 1, "Expected exactly one Analysis() call.")
         keyword_names = {keyword.arg for keyword in analysis_calls[0].keywords}
         self.assertNotIn("patcher", keyword_names)
+        self.assertNotIn("need_info", self.spec_text)
         self.assertIn("pathex", keyword_names)
         self.assertIn("datas", keyword_names)
         self.assertIn("hiddenimports", keyword_names)
@@ -41,6 +42,8 @@ class PackagingSpecTests(unittest.TestCase):
         self.assertIn('"skill_test_runner.py"', self.spec_text)
         self.assertIn('_skills_root = os.path.join(_repo_root, "skills")', self.spec_text)
         self.assertIn('_filename.endswith(".py") or _filename.endswith(".md")', self.spec_text)
+        self.assertIn('"yaml.scanner"', self.spec_text)
+        self.assertNotIn('"yaml scanner"', self.spec_text)
 
     def test_build_script_stops_when_runtime_dependency_install_fails(self):
         script = BUILD_SCRIPT_PATH.read_text(encoding="utf-8")
