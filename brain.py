@@ -187,11 +187,18 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 code=args.get("code", ""),
                 rationale=args.get("rationale", ""),
                 source=args.get("source", ""),
+                tests=args.get("tests"),
             )
         if name == "evaluate_skill_candidate":
             import skill_evolution
             return skill_evolution.evaluate_skill_candidate(
                 candidate_id=args.get("candidate_id", ""),
+            )
+        if name == "test_skill_candidate":
+            import skill_evolution
+            return skill_evolution.test_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                timeout_seconds=args.get("timeout_seconds", 15),
             )
         if name == "list_skill_candidates":
             import skill_evolution
