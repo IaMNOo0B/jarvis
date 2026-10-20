@@ -16,7 +16,9 @@ import traceback
 _BLOCKED_IMPORTS = {
     "socket", "ssl", "subprocess", "ctypes", "multiprocessing", "winreg",
     "urllib", "http", "ftplib", "telnetlib", "requests", "httpx", "aiohttp",
-    "webbrowser", "asyncio",
+    "webbrowser", "asyncio", "_socket", "_ssl", "_ctypes", "_multiprocessing",
+    "_winapi", "_overlapped", "win32api", "win32file", "pywintypes", "mmap",
+    "select",
 }
 _BLOCKED_EVENTS = {
     "os.system", "os.exec", "os.fork", "os.forkpty", "os.spawn",
