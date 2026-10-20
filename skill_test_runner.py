@@ -43,11 +43,13 @@ def _within(path, roots):
 def _install_audit_guard(work_root):
     paths = sysconfig.get_paths()
     stdlib_roots = [
-        paths.get("stdlib"), paths.get("platstdlib"),
-        os.path.join(sys.base_prefix, "DLLs"),
-        os.path.join(sys.base_prefix, "lib-dynload"),
+        path for path in (
+            paths.get("stdlib"), paths.get("platstdlib"),
+            os.path.join(sys.base_prefix, "DLLs"),
+            os.path.join(sys.base_prefix, "lib-dynload"),
+        ) if path
     ]
-    package_roots = [paths.get("purelib"), paths.get("platlib")]
+    package_roots = [path for path in (paths.get("purelib"), paths.get("platlib")) if path]
     read_roots = [work_root] + [p for p in stdlib_roots + package_roots if p]
     write_root = os.path.realpath(work_root)
     # -S prevents site startup hooks; allow imports from global site-packages
