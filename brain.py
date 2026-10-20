@@ -160,6 +160,14 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 confidence=args.get("confidence"),
                 outcome=args.get("outcome", ""),
             )
+        if name == "record_task_outcome":
+            return memory_instance.record_task_outcome(
+                task=args.get("task", ""),
+                status=args.get("status", ""),
+                result=args.get("result", ""),
+                evidence=args.get("evidence", []),
+                user_feedback=args.get("user_feedback", ""),
+            )
         if name == "validate_learned_knowledge":
             return memory_instance.validate_knowledge(
                 entry_id=args.get("entry_id", ""),
