@@ -59,6 +59,28 @@ class MemoryLearningTests(unittest.TestCase):
         self.assertIn("Reward signal: -1.0", summary)
         self.assertIn("Task status: failure", summary)
 
+    def test_recall_searches_provenance_and_evidence(self):
+        self.bank.save_knowledge(
+            title="Provider quota handling",
+            content="Retry only after transient limit responses.",
+            source="provider documentation",
+            evidence=["https://docs.example.test/rate-limit"],
+        )
+        result = self.bank.search_memory("rate-limit")
+        self.assertIn("Provider quota handling", result)
+        self.assertIn("https://docs.example.test/rate-limit", result)
+
+    def test_validated_record_wins_relevance_ties(self):
+        self.bank.save_knowledge("Verified ledger guide", "The ledger stores learning outcomes.")
+        with open(memory.MEMORY_FILE, encoding="utf-8") as handle:
+            entry_id = json.load(handle)[0]["id"]
+        self.bank.validate_knowledge(
+            entry_id, ["test: ledger behaviour"], "The focused memory test passed."
+        )
+        self.bank.save_knowledge("Recent ledger note", "The ledger stores learning outcomes.")
+        result = self.bank.search_memory("ledger", top_k=2)
+        self.assertLess(result.find("Verified ledger guide"), result.find("Recent ledger note"))
+
     def test_validation_requires_evidence_and_records_outcome(self):
         self.bank.save_knowledge("Lesson", "Test-backed lesson", source="test")
         with open(memory.MEMORY_FILE, encoding="utf-8") as handle:
