@@ -250,7 +250,11 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
             report["live_baseline_sha256"] = current_baseline_sha
             report["base_changed_since_staging"] = current_baseline_sha != metadata.get("base_sha256")
         else:
-            final_state = str(report.get("status") or "TEST_RUNNER_ERROR")
+            runner_error = str(report.get("runner_error") or report.get("error") or "")
+            if "PermissionError" in runner_error or "Blocked import" in runner_error or "Blocked by JARVIS" in runner_error:
+                final_state = "TEST_BLOCKED"
+            else:
+                final_state = str(report.get("status") or "TEST_RUNNER_ERROR")
 
         metadata["state"] = final_state
         metadata["tests_run"] = True
