@@ -31,7 +31,7 @@ import time
 
 _STYLES = ("observant", "helpful", "dry wit")
 
-from protocols import load_prompt
+from protocols import apply_protocols, load_prompt
 
 _PROMPT = load_prompt("SCREEN_WATCHER_PROMPT")
 
@@ -147,7 +147,7 @@ class ScreenWatcher:
     def _analyze(self, img_b64: str, style: str, last_remark: str):
         try:
             return self.analyze_image(
-                img_b64, _PROMPT.format(style=style, last_remark=last_remark))
+                img_b64, apply_protocols(_PROMPT.format(style=style, last_remark=last_remark)))
         except Exception as e:
             return None, str(e)
 
