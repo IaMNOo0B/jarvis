@@ -180,7 +180,7 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
     static_report = evaluate_skill_candidate(candidate_id)
     if "Static result: STATIC_PASS_REVIEW_REQUIRED" not in static_report:
         return (
-            "Candidate tests not run: static evaluation must pass first.\n"
+            "Candidate tests were not run because static evaluation did not pass.\n"
             + static_report
         )
 
@@ -812,7 +812,7 @@ def stage_skill_candidate(name: str, code: str, rationale: str = "",
     _write_json_atomic(meta_path, metadata)
     return (
         f"Staged skill candidate '{candidate_id}'. It was parsed but not imported, "
-        "executed, tested, or activated. Run evaluate_skill_candidate next."
+        "executed, tested, or activated. Static evaluation has not yet been recorded."
     )
 
 
@@ -982,5 +982,5 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
     if warnings:
         lines.append("Review notes: " + " | ".join(warnings))
     if not errors:
-        lines.append("Next: inspect the diff, supply focused tests, run them in an isolated test environment, and review before promotion.")
+        lines.append("Static checks passed; runtime behavior has not been tested.")
     return "\n".join(lines)
