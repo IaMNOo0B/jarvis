@@ -16,11 +16,11 @@ import threading
 
 import numpy as np
 
-# Biases the decoder toward Hinglish (Latin-script Hindi-English mix).
-# Technique: whisper's initial_prompt steers code-switched output.
-HINGLISH_PROMPT = ("Hey Jarvis, volume kam kar do. "
-                   "Aaj weather kaisa hai? "
-                   "Play some music, light jalao.")
+from protocols import load_prompt
+
+# Compatibility alias; default transcription reads the current TXT section
+# for every utterance so the wording remains centrally editable.
+HINGLISH_PROMPT = load_prompt("STT_TRANSCRIPTION_PROMPT")
 
 
 class Transcriber:
@@ -33,8 +33,7 @@ class Transcriber:
             model_name = model_name[:-len(".en")]
         self.model_name = model_name
         self.language = (language or "auto").strip().lower()
-        self.initial_prompt = (HINGLISH_PROMPT if initial_prompt is None
-                               else initial_prompt)
+        self.initial_prompt = initial_prompt
         self._model = None
         self._lock = threading.Lock()
 
@@ -67,8 +66,10 @@ class Transcriber:
         # this is what makes Hindi-English mixing work.
         if self.language != "auto":
             kwargs["language"] = self.language
-        if self.initial_prompt:
-            kwargs["initial_prompt"] = self.initial_prompt
+        prompt = (self.initial_prompt if self.initial_prompt is not None
+                  else load_prompt("STT_TRANSCRIPTION_PROMPT"))
+        if prompt:
+            kwargs["initial_prompt"] = prompt
         segments, _info = model.transcribe(audio, **kwargs)
         text = "".join(s.text for s in segments).strip()
         return " ".join(text.split())
