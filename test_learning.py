@@ -513,6 +513,36 @@ def handle(tool_name, args, services=None):
         with open(live_path, encoding="utf-8") as handle:
             self.assertIn("manually changed after promotion", handle.read())
 
+    def test_packaged_loader_prefers_user_overrides_and_keeps_bundled_fallback(self):
+        from skills import loader
+        old_user = loader.USER_SKILLS_DIR
+        old_bundled = loader.BUNDLED_SKILLS_DIR
+        try:
+            user_root = os.path.join(self.temp.name, "user_skills")
+            bundled_root = os.path.join(self.temp.name, "bundled_skills")
+            os.makedirs(os.path.join(user_root, "shared_skill"), exist_ok=True)
+            os.makedirs(os.path.join(user_root, "user_only_skill"), exist_ok=True)
+            os.makedirs(os.path.join(bundled_root, "shared_skill"), exist_ok=True)
+            os.makedirs(os.path.join(bundled_root, "bundled_only_skill"), exist_ok=True)
+            for path in (
+                os.path.join(user_root, "shared_skill", "skill.py"),
+                os.path.join(user_root, "user_only_skill", "skill.py"),
+                os.path.join(bundled_root, "shared_skill", "skill.py"),
+                os.path.join(bundled_root, "bundled_only_skill", "skill.py"),
+            ):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("SKILL_NAME = 'fixture'\\n")
+            loader.USER_SKILLS_DIR = user_root
+            loader.BUNDLED_SKILLS_DIR = bundled_root
+            entries = dict(loader._iter_skill_dirs())
+            self.assertEqual(entries["shared_skill"], os.path.join(user_root, "shared_skill", "skill.py"))
+            self.assertEqual(entries["user_only_skill"], os.path.join(user_root, "user_only_skill", "skill.py"))
+            self.assertEqual(entries["bundled_only_skill"], os.path.join(bundled_root, "bundled_only_skill", "skill.py"))
+            self.assertEqual(len([name for name in entries if name == "shared_skill"]), 1)
+        finally:
+            loader.USER_SKILLS_DIR = old_user
+            loader.BUNDLED_SKILLS_DIR = old_bundled
+
     def test_top_level_execution_is_rejected_without_running_candidate(self):
         source = '''SKILL_NAME = "bad_skill"
 SKILL_DESCRIPTION = "Must never run."
