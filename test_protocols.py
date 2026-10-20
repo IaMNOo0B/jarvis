@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import protocols
@@ -20,6 +22,21 @@ class ProtocolsTests(unittest.TestCase):
                     protocols.load_protocols()
         finally:
             protocols.BASE_DIR = original
+
+    def test_frozen_onefile_uses_bundled_policy_when_no_external_copy_exists(self):
+        original_base = protocols.BASE_DIR
+        source_policy = original_base / protocols.PROTOCOLS_FILENAME
+        try:
+            with tempfile.TemporaryDirectory() as executable_dir, tempfile.TemporaryDirectory() as bundle_dir:
+                (Path(bundle_dir) / protocols.PROTOCOLS_FILENAME).write_text(
+                    source_policy.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+                protocols.BASE_DIR = Path(executable_dir)
+                with patch.object(protocols.sys, "frozen", True, create=True):
+                    with patch.dict(os.environ, {"_MEIPASS": bundle_dir}):
+                        self.assertIn("FAIL-CLOSED RULE", protocols.load_protocols())
+        finally:
+            protocols.BASE_DIR = original_base
 
     def test_empty_policy_fails_closed(self):
         original = protocols.BASE_DIR
