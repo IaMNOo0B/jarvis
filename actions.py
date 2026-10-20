@@ -160,7 +160,7 @@ def parallel_multi_browse(urls: list, max_chars_per_page: int = 2500) -> str:
     return "\n".join(output)
 
 def read_workspace_file(filepath: str) -> str:
-    """Reads a text file inside the workspace."""
+    """Reads text from a supplied file path."""
     try:
         target = os.path.abspath(os.path.join(WORKSPACE_DIR, filepath)) if not os.path.isabs(filepath) else filepath
         if not os.path.exists(target):
@@ -171,7 +171,7 @@ def read_workspace_file(filepath: str) -> str:
         return f"Error reading file {filepath}: {e}"
 
 def write_workspace_file(filepath: str, content: str) -> str:
-    """Writes or overwrites a file in the workspace."""
+    """Writes text to a supplied file path."""
     try:
         target = os.path.abspath(os.path.join(WORKSPACE_DIR, filepath)) if not os.path.isabs(filepath) else filepath
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -321,7 +321,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_workspace_file",
-            "description": "Read the contents of a workspace file for code review, refactoring, or debugging.",
+            "description": "Read text from a supplied file path for code review, refactoring, or debugging.",
             "parameters": {
                 "type": "object",
                 "properties": {
