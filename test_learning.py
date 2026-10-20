@@ -160,6 +160,36 @@ def handle(tool_name, args, services=None):
         self.assertFalse(metadata["activated"])
         self.assertFalse(metadata["tests_run"])
 
+    def test_consolidated_review_includes_diff_tests_and_never_promotes(self):
+        candidate = '''SKILL_NAME = "review_demo"
+SKILL_DESCRIPTION = "Simple review fixture."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "review_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    if tool_name == "review_demo_run":
+        return "review-ok"
+    return None
+'''
+        cases = [{
+            "name": "new tool behaviour",
+            "kind": "feature",
+            "tool_name": "review_demo_run",
+            "args": {},
+            "expected_equals": "review-ok",
+        }]
+        staged = skill_evolution.stage_skill_candidate("review_demo", candidate, tests=cases)
+        candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.review_skill_candidate(candidate_id, run_tests=True, timeout_seconds=10))
+        self.assertEqual(report["status"], "REVIEW_READY_FOR_EXPLICIT_APPROVAL", report)
+        self.assertEqual(report["static_checks"], "PASS")
+        self.assertEqual(report["tests"], "TEST_PASS_NO_REGRESSION_COVERAGE")
+        self.assertFalse(report["activated"])
+        self.assertFalse(report["promotion_performed"])
+        self.assertIn("candidate_source", report["source_diff"] or "candidate_source")
+        with open(os.path.join(self.temp.name, candidate_id, "candidate.json"), encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        self.assertFalse(metadata["activated"])
+        self.assertFalse(metadata.get("promoted", False))
+
     def test_candidate_flags_live_baseline_change(self):
         live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "change_skill", "skill.py")
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
