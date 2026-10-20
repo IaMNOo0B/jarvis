@@ -1,8 +1,13 @@
+import sys
 from pathlib import Path
 
 
 PROTOCOLS_FILENAME = "JARVIS_PROTOCOLS.txt"
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
 
 
 class ProtocolsError(RuntimeError):
