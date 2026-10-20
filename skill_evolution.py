@@ -374,8 +374,7 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
     if str(approval_token or "") != str(candidate_id or ""):
         return (
             f"CONFIRM_REQUIRED:{candidate_id}. No files were changed. "
-            "Ask Sir to explicitly approve promotion of this exact candidate ID; "
-            "then pass that exact ID as approval_token."
+            "approval_token must exactly match candidate_id."
         )
     try:
         folder, metadata, candidate_source = _read_candidate(candidate_id)
@@ -497,8 +496,7 @@ def rollback_skill_version(version_id: str, approval_token: str = "") -> str:
     if str(approval_token or "") != str(version_id or ""):
         return (
             f"CONFIRM_REQUIRED:{version_id}. No files were changed. "
-            "Ask Sir to explicitly approve rollback of this exact version ID; "
-            "then pass that exact ID as approval_token."
+            "approval_token must exactly match version_id."
         )
     try:
         version_folder, manifest = _read_version(version_id)
@@ -777,7 +775,7 @@ def stage_skill_candidate(name: str, code: str, rationale: str = "",
     if not code.strip():
         return "Candidate not staged: source code is empty."
     if len(code.encode("utf-8")) > _MAX_SOURCE_BYTES:
-        return "Candidate not staged: source code exceeds the 100 KB limit."
+        return "Candidate not staged because source code exceeds the 100 KB input limit."
     try:
         tree = ast.parse(code, filename=f"{name}/skill.py")
     except SyntaxError as exc:
@@ -875,7 +873,7 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
             if not isinstance(node, allowed_top_level):
                 errors.append(
                     f"Top-level {type(node).__name__} statements are not allowed in a staged skill; "
-                    "move runtime work inside handle()."
+                    "place executable logic inside handle()."
                 )
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 try:
