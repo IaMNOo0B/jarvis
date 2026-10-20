@@ -43,10 +43,21 @@ memory bank.
 
 Reusable skill ideas can be saved with `stage_skill_candidate`. Candidates are
 stored separately from live skills and are not imported or run. Use
-`evaluate_skill_candidate` for static Python/interface checks. A static pass is
-not a runtime test: candidates still require isolated tests, diff review, and
-explicit review before promotion. Jarvis must not claim that source code has
-changed the base model's weights merely because it updated memory or skills.
+`list_skill_candidates`, `inspect_skill_candidate`, and
+`compare_skill_candidate` to review existing proposals, their hashes, metadata,
+and their diff from the current built-in skill. Use `evaluate_skill_candidate`
+for static Python/interface checks and baseline-change warnings. A static pass
+is not a runtime test: candidates still require isolated tests, diff review,
+and review before any future promotion workflow. No candidate is activated by
+these tools. Jarvis must not claim that source code changed the base model's
+weights merely because it updated memory or skills.
+
+Meaningful task outcomes can be stored separately from reusable knowledge, with
+success/partial/failure status, a small reward signal, evidence references, and
+user feedback when actually provided. These episodes remain unverified until
+the separate validation step records reviewed evidence and an outcome. Memory
+search also checks source/evidence metadata and prefers validated records when
+relevance scores are tied.
 
 ## Two brains, one JARVIS
 
