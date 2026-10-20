@@ -39,6 +39,12 @@ class ProtocolsTests(unittest.TestCase):
         self.assertIn("BASE SYSTEM PROMPT", result)
         self.assertIn("EDITABLE JARVIS PROTOCOLS", result)
         self.assertIn('Address the user as "Sir" only.', result)
+        self.assertIn("Reply to Sir in clear English by default", result)
+
+    def test_screen_watcher_prompt_is_editable(self):
+        prompt = protocols.load_prompt("SCREEN_WATCHER_PROMPT")
+        self.assertIn("stuck_score", prompt)
+        self.assertIn("{style}", prompt)
 
 
 if __name__ == "__main__":
