@@ -142,6 +142,22 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
         errors.append(f"Python syntax error at line {exc.lineno}: {exc.msg}.")
 
     if tree is not None:
+        allowed_top_level = (
+            ast.Assign, ast.AnnAssign, ast.Import, ast.ImportFrom,
+            ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Pass,
+        )
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                continue  # module docstring
+            if not isinstance(node, allowed_top_level):
+                errors.append(
+                    f"Top-level {type(node).__name__} statements are not allowed in a staged skill; "
+                    "move runtime work inside handle()."
+                )
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                value = node.value
+                if any(isinstance(part, ast.Call) for part in ast.walk(value)):
+                    errors.append("Top-level assignments must use literal values, not function calls.")
         declared_name = _top_level_assignment(tree, "SKILL_NAME")
         description = _top_level_assignment(tree, "SKILL_DESCRIPTION")
         schemas = _top_level_assignment(tree, "TOOL_DEFINITIONS")
