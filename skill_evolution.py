@@ -345,7 +345,7 @@ def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
                 final_state = str(report.get("status") or "TEST_RUNNER_ERROR")
 
         metadata["state"] = final_state
-        metadata["tests_run"] = True
+        metadata["tests_run"] = "candidate_results" in report
         metadata["test_report"] = report
         metadata["tested_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
         metadata["tested_source_sha256"] = hashlib.sha256(candidate_source.encode("utf-8")).hexdigest()
