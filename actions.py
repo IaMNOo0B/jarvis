@@ -459,6 +459,47 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "list_skill_candidates",
+            "description": "List staged skill proposals, evaluation status, and activation state without executing their code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum candidates to list, 1-50; defaults to 20."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_skill_candidate",
+            "description": "Read the exact staged skill source and metadata for review. Does not import or execute it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_skill_candidate",
+            "description": "Show the textual diff between a staged skill candidate and the current built-in skill, if one exists. Does not execute either version.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "recall_memory",
             "description": "Search and retrieve previously saved coding patterns, knowledge, or notes.",
             "parameters": {
