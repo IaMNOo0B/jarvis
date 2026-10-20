@@ -5,6 +5,7 @@ executing them, and never become active automatically.
 """
 
 import ast
+import difflib
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ from paths import user_file
 
 
 CANDIDATE_ROOT = user_file("skill_candidates")
+LIVE_SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}-[0-9a-f]{10}$")
 _MAX_SOURCE_BYTES = 100_000
@@ -51,6 +53,121 @@ def _candidate_dir(candidate_id: str) -> str:
     return target
 
 
+def _live_skill_path(name: str) -> str:
+    return os.path.abspath(os.path.join(LIVE_SKILLS_DIR, name, "skill.py"))
+
+
+def _sha256_file(path: str) -> str | None:
+    try:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(65536), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def _read_candidate(candidate_id: str) -> tuple[str, dict, str]:
+    folder = _candidate_dir(candidate_id)
+    with open(os.path.join(folder, "candidate.json"), "r", encoding="utf-8") as handle:
+        metadata = json.load(handle)
+    with open(os.path.join(folder, "skill.py"), "r", encoding="utf-8") as handle:
+        source = handle.read()
+    return folder, metadata, source
+
+
+def list_skill_candidates(limit: int = 20) -> str:
+    """List staged versions and their evaluation state, without executing them."""
+    try:
+        os.makedirs(CANDIDATE_ROOT, exist_ok=True)
+        entries = []
+        for candidate_id in sorted(os.listdir(CANDIDATE_ROOT), reverse=True):
+            if not _ID_RE.fullmatch(candidate_id):
+                continue
+            try:
+                _, metadata, source = _read_candidate(candidate_id)
+                digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+                entries.append({
+                    "candidate_id": candidate_id,
+                    "name": metadata.get("name", ""),
+                    "state": metadata.get("state", "staged"),
+                    "sha_matches": digest == metadata.get("sha256"),
+                    "tests_run": bool(metadata.get("tests_run")),
+                    "activated": bool(metadata.get("activated")),
+                    "created_at": metadata.get("created_at", ""),
+                })
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                entries.append({"candidate_id": candidate_id, "state": "metadata_error", "error": str(exc)})
+            if len(entries) >= max(1, min(int(limit), 50)):
+                break
+    except OSError as exc:
+        return f"Could not list staged skills: {exc}"
+    if not entries:
+        return "No staged skill candidates found."
+    return "Staged skill candidates (none are activated by this listing):\n" + json.dumps(entries, indent=2)
+
+
+def inspect_skill_candidate(candidate_id: str) -> str:
+    """Return the saved metadata and source for review; do not import candidate."""
+    try:
+        _, metadata, source = _read_candidate(candidate_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return f"Candidate inspection failed: {exc}"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    result = {
+        "metadata": metadata,
+        "current_sha256": digest,
+        "sha_matches_staged": digest == metadata.get("sha256"),
+        "candidate_source": source[:18000],
+        "source_truncated": len(source) > 18000,
+        "execution": "Candidate source was read as text only; it was not imported or executed.",
+    }
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def compare_skill_candidate(candidate_id: str) -> str:
+    """Show candidate diff against the live built-in skill, if one exists."""
+    try:
+        _, metadata, candidate_source = _read_candidate(candidate_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return f"Candidate comparison failed: {exc}"
+    name = str(metadata.get("name", ""))
+    baseline_path = _live_skill_path(name)
+    try:
+        with open(baseline_path, "r", encoding="utf-8") as handle:
+            baseline_source = handle.read()
+    except FileNotFoundError:
+        baseline_source = ""
+    except OSError as exc:
+        return f"Could not read baseline skill: {exc}"
+
+    baseline_sha = hashlib.sha256(baseline_source.encode("utf-8")).hexdigest() if baseline_source else None
+    staged_baseline_sha = metadata.get("base_sha256")
+    changed_since_staging = baseline_sha != staged_baseline_sha
+    diff = "".join(difflib.unified_diff(
+        baseline_source.splitlines(keepends=True),
+        candidate_source.splitlines(keepends=True),
+        fromfile=f"current/{name}/skill.py" if baseline_source else "/dev/null",
+        tofile=f"candidate/{name}/skill.py",
+        n=3,
+    ))
+    if changed_since_staging:
+        status = "WARNING: live baseline changed since this candidate was staged; review against the current version."
+    elif baseline_source:
+        status = "Baseline unchanged since staging."
+    else:
+        status = "No built-in baseline existed when this comparison ran (or candidate was staged as a new skill)."
+    return (
+        f"Candidate: {candidate_id}\n"
+        f"Candidate SHA-256: {metadata.get('sha256')}\n"
+        f"Current live SHA-256: {baseline_sha or 'no live skill'}\n"
+        f"SHA-256 at staging: {staged_baseline_sha or 'no live skill'}\n"
+        f"{status}\n\n"
+        f"{diff[:16000] or 'No diff available.'}"
+    )
+
+
 def stage_skill_candidate(name: str, code: str, rationale: str = "",
                           source: str = "") -> str:
     """Store a candidate in staging without loading or executing it."""
@@ -79,10 +196,12 @@ def stage_skill_candidate(name: str, code: str, rationale: str = "",
     if os.path.exists(meta_path):
         return f"Candidate already staged: {candidate_id}. No files were overwritten."
 
+    baseline_sha = _sha256_file(_live_skill_path(name))
     metadata = {
         "candidate_id": candidate_id,
         "name": name,
         "sha256": digest,
+        "base_sha256": baseline_sha,
         "rationale": rationale,
         "source": source,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -135,6 +254,10 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
     warnings = []
     if digest != metadata.get("sha256"):
         errors.append("Source hash no longer matches the staged metadata.")
+    current_baseline_sha = _sha256_file(_live_skill_path(str(metadata.get("name", ""))))
+    if current_baseline_sha != metadata.get("base_sha256"):
+        warnings.append("The live skill baseline changed since staging; compare and review the candidate against the current version before considering promotion.")
+    metadata["current_base_sha256_at_evaluation"] = current_baseline_sha
     try:
         tree = ast.parse(code, filename=code_path)
     except SyntaxError as exc:
