@@ -161,10 +161,11 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
         declared_name = _top_level_assignment(tree, "SKILL_NAME")
         description = _top_level_assignment(tree, "SKILL_DESCRIPTION")
         schemas = _top_level_assignment(tree, "TOOL_DEFINITIONS")
-        has_handler = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "handle"
-            for node in tree.body
-        )
+        handlers = [
+            node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "handle"
+        ]
+        has_handler = bool(handlers)
         if declared_name != metadata.get("name"):
             errors.append("SKILL_NAME must be a literal string matching the candidate name.")
         if not isinstance(description, str) or not description.strip():
@@ -187,6 +188,11 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
                 errors.append("Tool names inside the candidate must be unique.")
         if not has_handler:
             errors.append("Candidate must define a top-level handle(tool_name, args, services=None) function.")
+        else:
+            signature = handlers[0].args
+            positional = list(signature.posonlyargs) + list(signature.args)
+            if len(positional) < 3 and signature.vararg is None:
+                errors.append("handle must accept the three arguments passed by the Jarvis skill loader.")
 
         risky_imports = set()
         risky_calls = set()
