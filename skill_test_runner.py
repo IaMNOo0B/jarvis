@@ -5,6 +5,7 @@ Candidate code must remain inactive and should only be tested in a disposable
 environment with no credentials or unrelated user data.
 """
 
+import importlib.machinery
 import importlib.util
 import json
 import os
@@ -17,11 +18,13 @@ _BLOCKED_IMPORTS = {
     "subprocess", "ctypes", "multiprocessing", "winreg", "webbrowser",
     "_ctypes", "_multiprocessing", "_winapi", "_overlapped", "win32api",
     "win32file", "pywintypes", "mmap", "pycurl", "curl_cffi",
+    "sqlite3", "_sqlite3", "dbm", "shelve", "psutil", "cv2", "numpy",
+    "torch", "onnxruntime", "lxml", "cffi", "pandas", "polars", "scipy",
 }
 _BLOCKED_EVENTS = {
     "os.system", "os.exec", "os.fork", "os.forkpty", "os.spawn",
     "os.posix_spawn", "os.kill", "os.putenv", "os.unsetenv",
-    "socket.__new__", "subprocess.Popen",
+    "os.startfile", "socket.__new__", "subprocess.Popen",
 }
 
 
@@ -39,7 +42,11 @@ def _within(path, roots):
 
 def _install_audit_guard(work_root):
     paths = sysconfig.get_paths()
-    stdlib_roots = [paths.get("stdlib"), paths.get("platstdlib")]
+    stdlib_roots = [
+        paths.get("stdlib"), paths.get("platstdlib"),
+        os.path.join(sys.base_prefix, "DLLs"),
+        os.path.join(sys.base_prefix, "lib-dynload"),
+    ]
     package_roots = [paths.get("purelib"), paths.get("platlib")]
     read_roots = [work_root] + [p for p in stdlib_roots + package_roots if p]
     write_root = os.path.realpath(work_root)
@@ -55,8 +62,13 @@ def _install_audit_guard(work_root):
 
         if event == "import" and args:
             name = str(args[0]).split(".", 1)[0].lower()
+            filename = args[1] if len(args) > 1 else None
             if name in _BLOCKED_IMPORTS:
                 raise PermissionError(f"Blocked import during candidate test: {name}")
+            if isinstance(filename, (str, bytes, os.PathLike)):
+                native = str(filename).lower().endswith(importlib.machinery.EXTENSION_SUFFIXES)
+                if native and not _within(filename, stdlib_roots):
+                    raise PermissionError("Native extensions outside Python's standard library are blocked during candidate tests.")
 
         if event == "open" and args:
             path = args[0]
