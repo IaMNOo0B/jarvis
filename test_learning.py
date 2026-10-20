@@ -310,43 +310,53 @@ def handle(tool_name, args, services=None):
     def test_candidate_test_runner_blocks_network_imports(self):
         candidate = '''import socket
 SKILL_NAME = "blocked_demo"
-SKILL_DESCRIPTION = "Network import should be blocked."
+SKILL_DESCRIPTION = "Network socket creation must be blocked."
 TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "blocked_demo_run", "parameters": {"type": "object"}}}]
 def handle(tool_name, args, services=None):
+    try:
+        sock = socket.socket()
+        sock.close()
+    except PermissionError:
+        return "network blocked"
     return "unexpected"
 '''
         test_cases = [{
-            "name": "blocked network access",
+            "name": "network socket creation blocked",
             "kind": "feature",
             "tool_name": "blocked_demo_run",
             "args": {},
-            "expected_contains": "unexpected",
+            "expected_equals": "network blocked",
         }]
         message = skill_evolution.stage_skill_candidate("blocked_demo", candidate, tests=test_cases)
         candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
         report = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
-        self.assertEqual(report["status"], "TEST_BLOCKED", report)
+        self.assertEqual(report["status"], "TEST_PASS_NO_REGRESSION_COVERAGE", report)
         self.assertFalse(report["activated"])
 
-    def test_candidate_test_runner_blocks_direct_low_level_socket_import(self):
+    def test_candidate_test_runner_blocks_direct_low_level_socket_creation(self):
         candidate = '''import _socket
 SKILL_NAME = "raw_socket_demo"
-SKILL_DESCRIPTION = "A direct low-level network import is not permitted in test mode."
+SKILL_DESCRIPTION = "Direct low-level socket creation must be blocked."
 TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "raw_socket_demo_run", "parameters": {"type": "object"}}}]
 def handle(tool_name, args, services=None):
+    try:
+        sock = _socket.socket()
+        sock.close()
+    except PermissionError:
+        return "low-level network blocked"
     return "unexpected"
 '''
         cases = [{
-            "name": "raw socket blocked",
+            "name": "raw socket creation blocked",
             "kind": "feature",
             "tool_name": "raw_socket_demo_run",
             "args": {},
-            "expected_equals": "unexpected",
+            "expected_equals": "low-level network blocked",
         }]
         staged = skill_evolution.stage_skill_candidate("raw_socket_demo", candidate, tests=cases)
         candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
         result = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
-        self.assertEqual(result["status"], "TEST_BLOCKED", result)
+        self.assertEqual(result["status"], "TEST_PASS_NO_REGRESSION_COVERAGE", result)
         self.assertFalse(result["activated"])
 
     def test_candidate_test_runner_blocks_reads_outside_temporary_area(self):
