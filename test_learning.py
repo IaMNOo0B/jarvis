@@ -106,10 +106,13 @@ class SkillCandidateTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.old_root = skill_evolution.CANDIDATE_ROOT
+        self.old_live_root = skill_evolution.LIVE_SKILLS_DIR
         skill_evolution.CANDIDATE_ROOT = self.temp.name
+        skill_evolution.LIVE_SKILLS_DIR = os.path.join(self.temp.name, "live")
 
     def tearDown(self):
         skill_evolution.CANDIDATE_ROOT = self.old_root
+        skill_evolution.LIVE_SKILLS_DIR = self.old_live_root
         self.temp.cleanup()
 
     def test_candidate_is_staged_and_static_checked_without_activation(self):
@@ -130,6 +133,10 @@ TOOL_DEFINITIONS = [
 def handle(tool_name, args, services=None):
     return None
 '''
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "demo_skill", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write('SKILL_NAME = "demo_skill"\\n# previous version\\n')
         message = skill_evolution.stage_skill_candidate(
             "demo_skill", source, rationale="Unit test", source="test suite"
         )
@@ -139,10 +146,38 @@ def handle(tool_name, args, services=None):
         self.assertIn("STATIC_PASS_REVIEW_REQUIRED", result)
         self.assertIn("Runtime tests: NOT RUN", result)
         self.assertIn("Activated: NO", result)
+        listing = skill_evolution.list_skill_candidates()
+        self.assertIn(candidate_id, listing)
+        inspection = skill_evolution.inspect_skill_candidate(candidate_id)
+        self.assertIn("candidate_source", inspection)
+        self.assertIn("SKILL_NAME = \\"demo_skill\\"", inspection)
+        diff = skill_evolution.compare_skill_candidate(candidate_id)
+        self.assertIn("Baseline unchanged since staging", diff)
+        self.assertIn("previous version", diff)
         with open(os.path.join(self.temp.name, candidate_id, "candidate.json"), encoding="utf-8") as handle:
             metadata = json.load(handle)
+        self.assertEqual(metadata["base_sha256"], metadata["current_base_sha256_at_evaluation"])
         self.assertFalse(metadata["activated"])
         self.assertFalse(metadata["tests_run"])
+
+    def test_candidate_flags_live_baseline_change(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "change_skill", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write('SKILL_NAME = "change_skill"\\n')
+        source = '''SKILL_NAME = "change_skill"
+SKILL_DESCRIPTION = "Baseline change test."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "change_tool", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return None
+'''
+        message = skill_evolution.stage_skill_candidate("change_skill", source)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write('SKILL_NAME = "change_skill"\\n# changed after staging\\n')
+        result = skill_evolution.evaluate_skill_candidate(candidate_id)
+        self.assertIn("STATIC_PASS_REVIEW_REQUIRED", result)
+        self.assertIn("live skill baseline changed since staging", result)
 
     def test_class_body_and_decorator_side_effect_patterns_are_rejected(self):
         source = '''SKILL_NAME = "risk_skill"
