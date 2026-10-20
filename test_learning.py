@@ -328,6 +328,27 @@ def handle(tool_name, args, services=None):
         self.assertEqual(report["status"], "TEST_BLOCKED", report)
         self.assertFalse(report["activated"])
 
+    def test_candidate_test_runner_blocks_direct_low_level_socket_import(self):
+        candidate = '''import _socket
+SKILL_NAME = "raw_socket_demo"
+SKILL_DESCRIPTION = "A direct low-level network import is not permitted in test mode."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "raw_socket_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "unexpected"
+'''
+        cases = [{
+            "name": "raw socket blocked",
+            "kind": "feature",
+            "tool_name": "raw_socket_demo_run",
+            "args": {},
+            "expected_equals": "unexpected",
+        }]
+        staged = skill_evolution.stage_skill_candidate("raw_socket_demo", candidate, tests=cases)
+        candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        result = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(result["status"], "TEST_BLOCKED", result)
+        self.assertFalse(result["activated"])
+
     def test_candidate_test_runner_blocks_reads_outside_temporary_area(self):
         secret_path = os.path.join(self.temp.name, "outside_file.txt")
         with open(secret_path, "w", encoding="utf-8") as handle:
