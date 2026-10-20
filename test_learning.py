@@ -356,6 +356,163 @@ def handle(tool_name, args, services=None):
         self.assertEqual(report["report"]["candidate_passed"], 1)
         self.assertFalse(report["activated"])
 
+    def test_versioned_promotion_requires_confirmation_and_rollback_restores_baseline(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "promote_demo", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "promote_demo"
+SKILL_DESCRIPTION = "Existing working version."
+TOOL_DEFINITIONS = [
+    {"type": "function", "function": {"name": "promote_demo_echo", "parameters": {"type": "object"}}},
+]
+def handle(tool_name, args, services=None):
+    if tool_name == "promote_demo_echo":
+        return "legacy-value"
+    return None
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        candidate = '''SKILL_NAME = "promote_demo"
+SKILL_DESCRIPTION = "Preserves echo and adds uppercase."
+TOOL_DEFINITIONS = [
+    {"type": "function", "function": {"name": "promote_demo_echo", "parameters": {"type": "object"}}},
+    {"type": "function", "function": {"name": "promote_demo_upper", "parameters": {"type": "object"}}},
+]
+def handle(tool_name, args, services=None):
+    if tool_name == "promote_demo_echo":
+        return "legacy-value"
+    if tool_name == "promote_demo_upper":
+        return str((args or {}).get("text", "")).upper()
+    return None
+'''
+        tests = [
+            {"name": "legacy echo", "kind": "regression", "tool_name": "promote_demo_echo", "args": {}, "expected_equals": "legacy-value"},
+            {"name": "new uppercase", "kind": "feature", "tool_name": "promote_demo_upper", "args": {"text": "hello"}, "expected_equals": "HELLO"},
+        ]
+        staged = skill_evolution.stage_skill_candidate("promote_demo", candidate, tests=tests)
+        candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        tested = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(tested["status"], "TEST_PASS_REVIEW_REQUIRED", tested)
+
+        confirmation = skill_evolution.promote_skill_candidate(candidate_id)
+        self.assertIn("CONFIRM_REQUIRED", confirmation)
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), baseline)
+
+        promoted = json.loads(skill_evolution.promote_skill_candidate(
+            candidate_id, approval_token=candidate_id
+        ))
+        self.assertEqual(promoted["status"], "PROMOTED_PENDING_RESTART")
+        self.assertTrue(promoted["backup_saved"])
+        self.assertTrue(promoted["restart_required"])
+        self.assertFalse(promoted["activated"])
+        version_id = promoted["version_id"]
+        self.assertIn(version_id, skill_evolution.list_skill_versions())
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), candidate)
+
+        confirmation = skill_evolution.rollback_skill_version(version_id)
+        self.assertIn("CONFIRM_REQUIRED", confirmation)
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), candidate)
+
+        rolled_back = json.loads(skill_evolution.rollback_skill_version(
+            version_id, approval_token=version_id
+        ))
+        self.assertEqual(rolled_back["status"], "ROLLED_BACK")
+        self.assertTrue(rolled_back["previous_file_restored"])
+        self.assertTrue(rolled_back["restart_required"])
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), baseline)
+        self.assertIn("ROLLED_BACK", skill_evolution.list_skill_versions())
+
+    def test_new_skill_promotion_can_be_rolled_back_by_removing_override(self):
+        candidate = '''SKILL_NAME = "brand_new_demo"
+SKILL_DESCRIPTION = "A new demo skill."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "brand_new_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    if tool_name == "brand_new_demo_run":
+        return "new-skill-ok"
+    return None
+'''
+        cases = [{
+            "name": "new tool output",
+            "kind": "feature",
+            "tool_name": "brand_new_demo_run",
+            "args": {},
+            "expected_equals": "new-skill-ok",
+        }]
+        message = skill_evolution.stage_skill_candidate("brand_new_demo", candidate, tests=cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        result = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(result["status"], "TEST_PASS_NO_REGRESSION_COVERAGE", result)
+        promoted = json.loads(skill_evolution.promote_skill_candidate(candidate_id, approval_token=candidate_id))
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "brand_new_demo", "skill.py")
+        self.assertTrue(os.path.isfile(live_path))
+        rolled_back = json.loads(skill_evolution.rollback_skill_version(
+            promoted["version_id"], approval_token=promoted["version_id"]
+        ))
+        self.assertFalse(rolled_back["previous_file_restored"])
+        self.assertFalse(os.path.exists(live_path))
+
+    def test_promotion_refuses_when_baseline_changes_after_testing(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "stale_demo", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "stale_demo"
+SKILL_DESCRIPTION = "Baseline."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "stale_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "old"
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        candidate = '''SKILL_NAME = "stale_demo"
+SKILL_DESCRIPTION = "Candidate."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "stale_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "old"
+'''
+        cases = [{"name": "keep old tool", "kind": "regression", "tool_name": "stale_demo_run", "args": {}, "expected_equals": "old"}]
+        message = skill_evolution.stage_skill_candidate("stale_demo", candidate, tests=cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        result = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(result["status"], "TEST_PASS_REVIEW_REQUIRED", result)
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline + "\n# changed after tests\n")
+        refused = skill_evolution.promote_skill_candidate(candidate_id, approval_token=candidate_id)
+        self.assertIn("effective baseline changed after testing", refused)
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertIn("changed after tests", handle.read())
+
+    def test_rollback_refuses_if_live_file_drifted_after_promotion(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "drift_demo", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "drift_demo"
+SKILL_DESCRIPTION = "Baseline."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "drift_demo_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "stable"
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        candidate = baseline.replace("return \"stable\"", "return \"candidate\"")
+        cases = [{"name": "stable contract", "kind": "regression", "tool_name": "drift_demo_run", "args": {}, "expected_equals": "candidate"}]
+        # The replacement is intentionally expected to fail regression; use a passing baseline-preserving candidate.
+        candidate = baseline.replace('SKILL_DESCRIPTION = "Baseline."', 'SKILL_DESCRIPTION = "Candidate version."')
+        cases[0]["expected_equals"] = "stable"
+        message = skill_evolution.stage_skill_candidate("drift_demo", candidate, tests=cases)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        tested = json.loads(skill_evolution.test_skill_candidate(candidate_id, timeout_seconds=10))
+        self.assertEqual(tested["status"], "TEST_PASS_REVIEW_REQUIRED", tested)
+        promoted = json.loads(skill_evolution.promote_skill_candidate(candidate_id, approval_token=candidate_id))
+        with open(live_path, "a", encoding="utf-8") as handle:
+            handle.write("\n# manually changed after promotion\n")
+        refused = skill_evolution.rollback_skill_version(
+            promoted["version_id"], approval_token=promoted["version_id"]
+        )
+        self.assertIn("live file differs from this promotion", refused)
+        with open(live_path, encoding="utf-8") as handle:
+            self.assertIn("manually changed after promotion", handle.read())
+
     def test_top_level_execution_is_rejected_without_running_candidate(self):
         source = '''SKILL_NAME = "bad_skill"
 SKILL_DESCRIPTION = "Must never run."
