@@ -200,6 +200,23 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 candidate_id=args.get("candidate_id", ""),
                 timeout_seconds=args.get("timeout_seconds", 15),
             )
+        if name == "promote_skill_candidate":
+            import skill_evolution
+            return skill_evolution.promote_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                approval_token=args.get("approval_token", ""),
+            )
+        if name == "rollback_skill_version":
+            import skill_evolution
+            return skill_evolution.rollback_skill_version(
+                version_id=args.get("version_id", ""),
+                approval_token=args.get("approval_token", ""),
+            )
+        if name == "list_skill_versions":
+            import skill_evolution
+            return skill_evolution.list_skill_versions(
+                limit=args.get("limit", 20),
+            )
         if name == "list_skill_candidates":
             import skill_evolution
             return skill_evolution.list_skill_candidates(
