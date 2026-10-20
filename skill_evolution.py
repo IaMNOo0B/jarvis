@@ -10,7 +10,11 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import tempfile
+import time
 from datetime import datetime
 
 from paths import user_file
@@ -82,6 +86,194 @@ def _read_candidate(candidate_id: str) -> tuple[str, dict, str]:
     with open(os.path.join(folder, "skill.py"), "r", encoding="utf-8") as handle:
         source = handle.read()
     return folder, metadata, source
+
+
+def test_skill_candidate(candidate_id: str, timeout_seconds: int = 15) -> str:
+    """Run supplied feature/regression cases in a constrained, disposable child process."""
+    static_report = evaluate_skill_candidate(candidate_id)
+    if "Static result: STATIC_PASS_REVIEW_REQUIRED" not in static_report:
+        return (
+            "Candidate tests not run: static evaluation must pass first.\n"
+            + static_report
+        )
+
+    try:
+        folder, metadata, candidate_source = _read_candidate(candidate_id)
+        cases = _validate_test_cases(metadata.get("test_cases"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return f"Candidate tests not run: {exc}"
+
+    runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skill_test_runner.py")
+    if not os.path.isfile(runner_path):
+        return "Candidate tests not run: skill_test_runner.py is missing from the application bundle."
+    if getattr(sys, "frozen", False):
+        interpreter = shutil.which("python") or shutil.which("python3")
+        if not interpreter:
+            return "Candidate tests not run: a standalone Python interpreter is required; static evaluation remains available."
+    else:
+        interpreter = sys.executable
+
+    name = str(metadata.get("name") or "")
+    current_baseline_path = _live_skill_path(name)
+    current_baseline_sha = _sha256_file(current_baseline_path)
+    has_regressions = any(case["kind"] == "regression" for case in cases)
+    baseline_source = ""
+    if current_baseline_sha:
+        try:
+            with open(current_baseline_path, "r", encoding="utf-8") as handle:
+                baseline_source = handle.read()
+        except OSError as exc:
+            return f"Candidate tests not run: could not read the current baseline: {exc}"
+    baseline_available = bool(baseline_source and has_regressions)
+
+    if has_regressions and not baseline_available:
+        return (
+            "Candidate tests not run: regression cases were supplied, but there is no readable "
+            "current baseline skill to compare. Use feature cases for a new skill."
+        )
+
+    try:
+        test_timeout = max(3, min(int(timeout_seconds), 30))
+    except (TypeError, ValueError):
+        test_timeout = 15
+
+    metadata["state"] = "TESTING"
+    metadata["activated"] = False
+    _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="jarvis-skill-tests-") as temp_root:
+            candidate_path = os.path.join(temp_root, "candidate_skill.py")
+            cases_path = os.path.join(temp_root, "test_cases.json")
+            baseline_path = os.path.join(temp_root, "baseline_skill.py") if baseline_available else ""
+            with open(candidate_path, "x", encoding="utf-8") as handle:
+                handle.write(candidate_source)
+            with open(cases_path, "x", encoding="utf-8") as handle:
+                json.dump(cases, handle, ensure_ascii=False)
+            if baseline_available:
+                with open(baseline_path, "x", encoding="utf-8") as handle:
+                    handle.write(baseline_source)
+
+            stdout_path = os.path.join(temp_root, "runner.stdout")
+            stderr_path = os.path.join(temp_root, "runner.stderr")
+            env = {
+                key: os.environ[key]
+                for key in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH", "LANG", "LC_ALL")
+                if os.environ.get(key)
+            }
+            env["PYTHONUTF8"] = "1"
+            cmd = [
+                interpreter, "-I", "-S", runner_path, "--child",
+                candidate_path, cases_path, baseline_path,
+            ]
+            start = time.monotonic()
+            with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
+                proc = subprocess.Popen(
+                    cmd, cwd=temp_root, env=env, stdout=out, stderr=err,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                timed_out = False
+                output_limited = False
+                while proc.poll() is None:
+                    if time.monotonic() - start > test_timeout:
+                        timed_out = True
+                        proc.kill()
+                        break
+                    if os.path.getsize(stdout_path) > 1_000_000 or os.path.getsize(stderr_path) > 1_000_000:
+                        output_limited = True
+                        proc.kill()
+                        break
+                    time.sleep(0.05)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+            with open(stdout_path, "r", encoding="utf-8", errors="replace") as handle:
+                stdout = handle.read()[-1_000_000:]
+            with open(stderr_path, "r", encoding="utf-8", errors="replace") as handle:
+                stderr = handle.read()[-1_000_000:]
+
+        if timed_out:
+            report = {"status": "TEST_TIMEOUT", "error": f"Candidate test process exceeded {test_timeout} seconds."}
+        elif output_limited:
+            report = {"status": "TEST_OUTPUT_LIMIT", "error": "Candidate test process exceeded the 1 MB output limit."}
+        else:
+            report = None
+            for line in reversed(stdout.splitlines()):
+                try:
+                    parsed = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict) and ("candidate_results" in parsed or "runner_error" in parsed):
+                    report = parsed
+                    break
+            if report is None:
+                report = {
+                    "status": "TEST_RUNNER_ERROR",
+                    "error": "Runner did not return a structured report.",
+                    "return_code": proc.returncode,
+                    "stderr": stderr[-3000:],
+                }
+
+        if "candidate_results" in report:
+            candidate_rows = report.get("candidate_results") or []
+            baseline_rows = report.get("baseline_results") or []
+            baseline_by_name = {row.get("name"): row for row in baseline_rows}
+            failures = [row for row in candidate_rows if not row.get("passed")]
+            regression_rows = [row for row in candidate_rows if row.get("kind") == "regression"]
+            baseline_failures = []
+            candidate_regressions = []
+            for row in regression_rows:
+                baseline_row = baseline_by_name.get(row.get("name"))
+                if not baseline_row or not baseline_row.get("passed"):
+                    baseline_failures.append(row.get("name"))
+                elif not row.get("passed"):
+                    candidate_regressions.append(row.get("name"))
+
+            report["candidate_passed"] = len(candidate_rows) - len(failures)
+            report["candidate_failed"] = len(failures)
+            report["baseline_failures"] = baseline_failures
+            report["candidate_regressions"] = candidate_regressions
+            if report.get("baseline_error"):
+                final_state = "BASELINE_TEST_INVALID"
+            elif baseline_failures:
+                final_state = "BASELINE_TEST_INVALID"
+            elif failures:
+                final_state = "TEST_FAIL"
+            elif not regression_rows:
+                final_state = "TEST_PASS_NO_REGRESSION_COVERAGE"
+            else:
+                final_state = "TEST_PASS_REVIEW_REQUIRED"
+            report["status"] = final_state
+            report["live_baseline_sha256"] = current_baseline_sha
+            report["base_changed_since_staging"] = current_baseline_sha != metadata.get("base_sha256")
+        else:
+            final_state = str(report.get("status") or "TEST_RUNNER_ERROR")
+
+        metadata["state"] = final_state
+        metadata["tests_run"] = True
+        metadata["test_report"] = report
+        metadata["tested_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        metadata["tested_source_sha256"] = hashlib.sha256(candidate_source.encode("utf-8")).hexdigest()
+        metadata["tested_baseline_sha256"] = current_baseline_sha
+        metadata["activated"] = False
+        _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
+        return json.dumps({
+            "candidate_id": candidate_id,
+            "status": final_state,
+            "tests_run": True,
+            "activated": False,
+            "report": report,
+        }, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        metadata["state"] = "TEST_RUNNER_ERROR"
+        metadata["tests_run"] = False
+        metadata["activated"] = False
+        metadata["test_report"] = {"error": f"{type(exc).__name__}: {exc}"}
+        _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
+        return f"Candidate test runner failed: {type(exc).__name__}: {exc}"
 
 
 def list_skill_candidates(limit: int = 20) -> str:
@@ -175,13 +367,68 @@ def compare_skill_candidate(candidate_id: str) -> str:
     )
 
 
+def _validate_test_cases(test_cases):
+    if not isinstance(test_cases, list) or not test_cases:
+        raise ValueError("Provide a non-empty list of test cases.")
+    if len(test_cases) > 20:
+        raise ValueError("At most 20 test cases are allowed per candidate.")
+    clean = []
+    allowed_keys = {
+        "name", "tool_name", "args", "kind", "expected_equals",
+        "expected_contains", "expected_is_none",
+    }
+    for index, raw in enumerate(test_cases, start=1):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Test case {index} must be an object.")
+        unknown = set(raw) - allowed_keys
+        if unknown:
+            raise ValueError(f"Test case {index} has unsupported keys: {', '.join(sorted(unknown))}.")
+        tool_name = raw.get("tool_name")
+        args = raw.get("args", {})
+        kind = raw.get("kind", "feature")
+        if not isinstance(tool_name, str) or not tool_name.strip() or len(tool_name) > 128:
+            raise ValueError(f"Test case {index} needs a tool_name (1-128 characters).")
+        if not isinstance(args, dict):
+            raise ValueError(f"Test case {index} args must be an object.")
+        if kind not in {"feature", "regression"}:
+            raise ValueError(f"Test case {index} kind must be feature or regression.")
+        expectations = [key for key in ("expected_equals", "expected_contains", "expected_is_none") if key in raw]
+        if len(expectations) != 1:
+            raise ValueError(f"Test case {index} must contain exactly one expected_* assertion.")
+        if "expected_equals" in raw and not isinstance(raw["expected_equals"], (str, type(None))):
+            raise ValueError(f"Test case {index} expected_equals must be text or null.")
+        if "expected_contains" in raw and not isinstance(raw["expected_contains"], str):
+            raise ValueError(f"Test case {index} expected_contains must be text.")
+        if "expected_is_none" in raw and not isinstance(raw["expected_is_none"], bool):
+            raise ValueError(f"Test case {index} expected_is_none must be true or false.")
+        try:
+            encoded_args = json.dumps(args, ensure_ascii=False)
+            if len(encoded_args.encode("utf-8")) > 10_000:
+                raise ValueError(f"Test case {index} args exceed 10 KB.")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Test case {index} args must be JSON data: {exc}") from exc
+        item = {
+            "name": str(raw.get("name") or f"case_{index}")[:120],
+            "tool_name": tool_name.strip(),
+            "args": args,
+            "kind": kind,
+            expectations[0]: raw[expectations[0]],
+        }
+        clean.append(item)
+    return clean
+
+
 def stage_skill_candidate(name: str, code: str, rationale: str = "",
-                          source: str = "") -> str:
+                          source: str = "", tests=None) -> str:
     """Store a candidate in staging without loading or executing it."""
     name = str(name or "").strip().lower()
     code = str(code or "")
     rationale = str(rationale or "").strip()
     source = str(source or "").strip()
+    try:
+        clean_tests = _validate_test_cases(tests) if tests is not None else []
+    except ValueError as exc:
+        return f"Candidate tests were not accepted: {exc}"
     if not _NAME_RE.fullmatch(name):
         return "Candidate not staged: name must be 2-40 lowercase letters, digits, or underscores and start with a letter."
     if not code.strip():
@@ -213,7 +460,9 @@ def stage_skill_candidate(name: str, code: str, rationale: str = "",
         "source": source,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "state": "staged",
+        "test_cases": clean_tests,
         "static_evaluation": None,
+        "test_report": None,
         "tests_run": False,
         "activated": False,
     }
