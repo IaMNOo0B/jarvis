@@ -23,7 +23,7 @@ Say **"Hey Jarvis"**, wait for the chime, and talk. Or press **Ctrl+Alt+Space**
 All AI-facing persona prompts and operating protocols are maintained in
 `JARVIS_PROTOCOLS.txt` in the application/repository root. Edit that file to
 change Jarvis's response language, style, research approach, consultation
-instructions, screen-watcher prompt, or operating rules. Keep the section
+instructions, screen-watcher prompt, response-filter phrases, speech-transcription prompt, or operating rules. Keep the section
 markers intact. Changes to loaded prompts take effect on the next relevant
 turn/restart, depending on the component.
 
