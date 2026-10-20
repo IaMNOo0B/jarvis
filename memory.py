@@ -154,8 +154,8 @@ class MemoryBank:
             pass
 
         return (
-            f"Saved learning record '{title}' (ID {item['id']}) as unverified. "
-            "Use its evidence and outcome to review it before relying on it as validated."
+            f"Saved learning record '{title}' (ID {item['id']}) with status unverified. "
+            "Its evidence and outcome are stored separately from validation state."
         )
 
     def record_task_outcome(
