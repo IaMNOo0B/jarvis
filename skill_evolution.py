@@ -127,14 +127,21 @@ def _atomic_write_text(path: str, payload: str) -> None:
 
 
 def _version_root() -> str:
-    return os.path.join(os.path.realpath(CANDIDATE_ROOT), "versions")
+    parent = os.path.realpath(CANDIDATE_ROOT)
+    raw_root = os.path.join(parent, "versions")
+    if os.path.islink(raw_root):
+        raise ValueError("The version archive must not be a symlink.")
+    root = os.path.realpath(raw_root)
+    if os.path.commonpath([parent, root]) != parent:
+        raise ValueError("Version archive resolves outside the candidate directory.")
+    return root
 
 
 def _version_dir(version_id: str) -> str:
     version_id = str(version_id or "").strip()
     if not _VERSION_RE.fullmatch(version_id):
         raise ValueError("Invalid version ID.")
-    root = os.path.realpath(_version_root())
+    root = _version_root()
     target = os.path.realpath(os.path.join(root, version_id))
     if os.path.commonpath([root, target]) != root:
         raise ValueError("Version path resolves outside the version archive.")
@@ -445,6 +452,13 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
             manifest["state"] = "PROMOTED_PENDING_RESTART"
             manifest["promoted_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
             _write_json_atomic(os.path.join(version_folder, "manifest.json"), manifest)
+            metadata["state"] = "PROMOTED_PENDING_RESTART"
+            metadata["promoted"] = True
+            metadata["promoted_at"] = manifest["promoted_at"]
+            metadata["version_id"] = version_id
+            metadata["promoted_sha256"] = source_sha
+            metadata["activated"] = False
+            _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
         except Exception as exc:
             try:
                 if previous_bytes is not None:
@@ -462,13 +476,6 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
                 )
             return f"Promotion failed and the previous live file was restored: {exc}. Version archive: {version_id}."
 
-        metadata["state"] = "PROMOTED_PENDING_RESTART"
-        metadata["promoted"] = True
-        metadata["promoted_at"] = manifest["promoted_at"]
-        metadata["version_id"] = version_id
-        metadata["promoted_sha256"] = source_sha
-        metadata["activated"] = False
-        _write_json_atomic(os.path.join(folder, "candidate.json"), metadata)
         return json.dumps({
             "status": "PROMOTED_PENDING_RESTART",
             "candidate_id": candidate_id,
@@ -642,7 +649,7 @@ def compare_skill_candidate(candidate_id: str) -> str:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return f"Candidate comparison failed: {exc}"
     name = str(metadata.get("name", ""))
-    baseline_path = _live_skill_path(name)
+    baseline_path = _baseline_skill_path(name)
     try:
         with open(baseline_path, "r", encoding="utf-8") as handle:
             baseline_source = handle.read()
@@ -808,6 +815,11 @@ def evaluate_skill_candidate(candidate_id: str) -> str:
     try:
         folder, metadata, code = _read_candidate(candidate_id)
         code_path = os.path.join(folder, "skill.py")
+        if metadata.get("promoted"):
+            return (
+                f"Candidate {candidate_id} has already been promoted. "
+                "Stage a new candidate to propose further changes."
+            )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return f"Candidate evaluation failed: {exc}"
 
