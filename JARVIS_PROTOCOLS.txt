@@ -108,9 +108,36 @@ Reply ONLY as JSON, no other text:
 {{"summary": "...", "stuck_score": 0-10, "remark": "one short spoken line, or empty string if nothing is worth saying"}}
 === END SCREEN_WATCHER_PROMPT ===
 
+=== HEDGE_PATTERNS ===
+i don't know
+i do not know
+i dont know
+i'm not sure
+i am not sure
+i cannot assist
+i can't assist
+i cannot help
+i have no information
+no information about
+i don't have information
+i don't have access to
+as an ai
+unable to find any information
+i'm unable to
+i am unable to
+cannot provide that
+i can't answer
+i cannot answer
+no idea
+=== END HEDGE_PATTERNS ===
+
+=== STT_TRANSCRIPTION_PROMPT ===
+Hey Jarvis, volume kam kar do. Aaj weather kaisa hai? Play some music, light jalao.
+=== END STT_TRANSCRIPTION_PROMPT ===
+
 === OPERATING_PROTOCOLS ===
 JARVIS AI PROTOCOLS — EDITABLE POLICY FILE
-Version: 4
+Version: 5
 Owner: Sir
 
 PURPOSE
