@@ -200,6 +200,13 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 candidate_id=args.get("candidate_id", ""),
                 timeout_seconds=args.get("timeout_seconds", 15),
             )
+        if name == "review_skill_candidate":
+            import skill_evolution
+            return skill_evolution.review_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                run_tests=args.get("run_tests", True),
+                timeout_seconds=args.get("timeout_seconds", 15),
+            )
         if name == "promote_skill_candidate":
             import skill_evolution
             return skill_evolution.promote_skill_candidate(
