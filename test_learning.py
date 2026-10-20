@@ -184,7 +184,7 @@ def handle(tool_name, args, services=None):
         self.assertEqual(report["tests"], "TEST_PASS_NO_REGRESSION_COVERAGE")
         self.assertFalse(report["activated"])
         self.assertFalse(report["promotion_performed"])
-        self.assertIn("candidate_source", report["source_diff"] or "candidate_source")
+        self.assertIn("candidate/review_demo/skill.py", report["source_diff"])
         with open(os.path.join(self.temp.name, candidate_id, "candidate.json"), encoding="utf-8") as handle:
             metadata = json.load(handle)
         self.assertFalse(metadata["activated"])
