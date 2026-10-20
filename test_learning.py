@@ -150,7 +150,7 @@ def handle(tool_name, args, services=None):
         self.assertIn(candidate_id, listing)
         inspection = skill_evolution.inspect_skill_candidate(candidate_id)
         self.assertIn("candidate_source", inspection)
-        self.assertIn("SKILL_NAME = \\"demo_skill\\"", inspection)
+        self.assertIn('SKILL_NAME = "demo_skill"', inspection)
         diff = skill_evolution.compare_skill_candidate(candidate_id)
         self.assertIn("Baseline unchanged since staging", diff)
         self.assertIn("previous version", diff)
