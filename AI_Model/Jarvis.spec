@@ -155,7 +155,6 @@ APP = {
     "name": "JARVIS",
 }
 
-patches = []
 data_files = [
     (os.path.join(_repo_root, "JARVIS_PROTOCOLS.txt"), "."),
     (os.path.join(_repo_root, "skill_test_runner.py"), "."),
@@ -198,7 +197,6 @@ except Exception:
 a = Analysis(
     ["freeze_jarvis.py"],
     pathex=[_repo_root],
-    patcher=libraries,
     binaries=binaries if binaries else None,
     datas=data_files if data_files else None,
     hiddenimports=hidden_imports,
