@@ -354,7 +354,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "save_learned_knowledge",
-            "description": "Save newly acquired knowledge, algorithm implementations, architectural patterns, or facts to JARVIS's permanent memory.",
+            "description": "Save a learning record with source and evidence metadata. New records begin unverified.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -372,9 +372,69 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Source reference or URL.",
                         "default": ""
+                    },
+                    "evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source URLs, test outputs, or other supporting evidence."
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "description": "Tentative confidence from 0 to 1; not a substitute for validation."
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "description": "Observed result or what the task taught."
                     }
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "validate_learned_knowledge",
+            "description": "Record concrete validation evidence and outcome for an existing learning record.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string", "description": "ID returned by save_learned_knowledge or recall_memory."},
+                    "evidence": {"type": "array", "items": {"type": "string"}, "description": "Evidence references that support the validation."},
+                    "outcome": {"type": "string", "description": "What was tested or independently verified."}
+                },
+                "required": ["entry_id", "evidence", "outcome"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stage_skill_candidate",
+            "description": "Store a proposed reusable Jarvis skill in a separate staging area without loading or running it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Lowercase skill name, such as research_helper."},
+                    "code": {"type": "string", "description": "Complete Python source for skills/<name>/skill.py."},
+                    "rationale": {"type": "string", "description": "Problem this candidate is intended to solve."},
+                    "source": {"type": "string", "description": "Research source URLs or design references."}
+                },
+                "required": ["name", "code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_skill_candidate",
+            "description": "Statically inspect a staged skill candidate for Python syntax and the Jarvis skill interface. Does not execute it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
             }
         }
     },
