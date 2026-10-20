@@ -41,6 +41,17 @@ class ProtocolsTests(unittest.TestCase):
         self.assertIn('Address the user as "Sir" only.', result)
         self.assertIn("Reply to Sir in clear English by default", result)
 
+    def test_all_prompt_like_sections_are_editable(self):
+        hedge_patterns = protocols.load_prompt("HEDGE_PATTERNS")
+        transcription_prompt = protocols.load_prompt("STT_TRANSCRIPTION_PROMPT")
+        self.assertIn("i don't know", hedge_patterns)
+        self.assertIn("Hey Jarvis", transcription_prompt)
+
+    def test_hedge_detection_uses_txt_rules(self):
+        import persona
+        self.assertTrue(persona.is_hedged("I do not know the answer yet."))
+        self.assertFalse(persona.is_hedged("I checked the source and verified the result."))
+
     def test_screen_watcher_prompt_is_editable(self):
         prompt = protocols.load_prompt("SCREEN_WATCHER_PROMPT")
         self.assertIn("stuck_score", prompt)
