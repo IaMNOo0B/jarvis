@@ -179,6 +179,24 @@ def handle(tool_name, args, services=None):
         self.assertIn("STATIC_PASS_REVIEW_REQUIRED", result)
         self.assertIn("live skill baseline changed since staging", result)
 
+    def test_candidate_metadata_path_traversal_is_rejected(self):
+        source = '''SKILL_NAME = "path_skill"
+SKILL_DESCRIPTION = "Metadata path check."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "path_tool", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return None
+'''
+        message = skill_evolution.stage_skill_candidate("path_skill", source)
+        candidate_id = message.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        metadata_path = os.path.join(self.temp.name, candidate_id, "candidate.json")
+        with open(metadata_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        metadata["name"] = "../../outside"
+        with open(metadata_path, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+        result = skill_evolution.evaluate_skill_candidate(candidate_id)
+        self.assertIn("invalid skill name", result)
+
     def test_class_body_and_decorator_side_effect_patterns_are_rejected(self):
         source = '''SKILL_NAME = "risk_skill"
 SKILL_DESCRIPTION = "Import-time side-effect test."
