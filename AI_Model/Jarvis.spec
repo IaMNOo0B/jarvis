@@ -112,9 +112,9 @@ hidden_imports = [
     "yaml.parser",
     "yaml.reader",
     "yaml.resolver",
-    "yaml scanner",
-    "yaml serializer",
-    "yaml tokens",
+    "yaml.scanner",
+    "yaml.serializer",
+    "yaml.tokens",
     # --- psutil ---
     "psutil",
     "psutil._common",
@@ -177,11 +177,11 @@ binaries = []
 
 # Collect dynamic libs for native packages that PyInstaller's hooks might not
 # fully pull in on every wheel (especially sounddevice/PyQt6/opencv/pycaw).
-binaries += collect_dynamic_libs("sounddevice", need_info=True) or []
-binaries += collect_dynamic_libs("cv2", need_info=True) or []
-binaries += collect_dynamic_libs("pycaw", need_info=True) or []
+binaries += collect_dynamic_libs("sounddevice") or []
+binaries += collect_dynamic_libs("cv2") or []
+binaries += collect_dynamic_libs("pycaw") or []
 try:
-    binaries += collect_dynamic_libs("PyQt6", need_info=True) or []
+    binaries += collect_dynamic_libs("PyQt6") or []
 except Exception:
     pass
 
