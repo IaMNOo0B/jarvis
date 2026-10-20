@@ -47,9 +47,11 @@ stored separately from live skills and are not imported or run. Use
 `compare_skill_candidate` to review existing proposals, their hashes, metadata,
 and their diff from the current built-in skill. Use `evaluate_skill_candidate`
 for static Python/interface checks and baseline-change warnings. A static pass
-is not a runtime test: candidates still require isolated tests, diff review,
-and review before any future promotion workflow. No candidate is activated by
-these tools. Jarvis must not claim that source code changed the base model's
+is not a runtime test. `review_skill_candidate` combines static checks, the
+diff, baseline state, and behavior/regression tests into one report. Existing
+skills require passing regression cases; new skills need feature tests. A
+review-ready candidate is still inactive until separately promoted. No
+candidate is activated by staging, inspection, or review. Jarvis must not claim that source code changed the base model's
 weights merely because it updated memory or skills.
 
 Meaningful task outcomes can be stored separately from reusable knowledge, with
