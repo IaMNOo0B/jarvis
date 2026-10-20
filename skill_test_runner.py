@@ -14,11 +14,9 @@ import traceback
 
 
 _BLOCKED_IMPORTS = {
-    "socket", "ssl", "subprocess", "ctypes", "multiprocessing", "winreg",
-    "urllib", "http", "ftplib", "telnetlib", "requests", "httpx", "aiohttp",
-    "webbrowser", "asyncio", "_socket", "_ssl", "_ctypes", "_multiprocessing",
-    "_winapi", "_overlapped", "win32api", "win32file", "pywintypes", "mmap",
-    "select",
+    "subprocess", "ctypes", "multiprocessing", "winreg", "webbrowser",
+    "_ctypes", "_multiprocessing", "_winapi", "_overlapped", "win32api",
+    "win32file", "pywintypes", "mmap", "pycurl", "curl_cffi",
 }
 _BLOCKED_EVENTS = {
     "os.system", "os.exec", "os.fork", "os.forkpty", "os.spawn",
@@ -42,8 +40,14 @@ def _within(path, roots):
 def _install_audit_guard(work_root):
     paths = sysconfig.get_paths()
     stdlib_roots = [paths.get("stdlib"), paths.get("platstdlib")]
-    read_roots = [work_root] + [p for p in stdlib_roots if p]
+    package_roots = [paths.get("purelib"), paths.get("platlib")]
+    read_roots = [work_root] + [p for p in stdlib_roots + package_roots if p]
     write_root = os.path.realpath(work_root)
+    # -S prevents site startup hooks; allow imports from global site-packages
+    # explicitly only after this runner has started, with the audit guard on.
+    for package_root in package_roots:
+        if package_root and os.path.isdir(package_root) and package_root not in sys.path:
+            sys.path.append(package_root)
 
     def guard(event, args):
         if event in _BLOCKED_EVENTS or event.startswith("socket.") or event.startswith("subprocess."):
@@ -80,7 +84,7 @@ def _install_audit_guard(work_root):
 
         if event in {"os.listdir", "os.scandir"} and args:
             path = args[0] if args[0] is not None else os.getcwd()
-            if not _within(path, [write_root]):
+            if not _within(path, read_roots):
                 raise PermissionError(f"Directory listing via {event} is restricted to the temporary test directory.")
 
         if event == "os.chdir" and args and not _within(args[0], [write_root]):
