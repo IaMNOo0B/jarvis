@@ -52,9 +52,10 @@ class MemoryLearningTests(unittest.TestCase):
         self.assertEqual(episode["record_type"], "task_outcome")
         self.assertEqual(episode["outcome_status"], "failure")
         self.assertEqual(episode["reward"], -1.0)
-        self.assertEqual(episode["validation_status"], "validated")
+        self.assertEqual(episode["validation_status"], "unverified")
+        self.assertEqual(episode["validation_evidence"], [])
         self.assertEqual(len(episode["evidence"]), 2)
-        summary = self.bank.search_memory("candidate skill", status="validated")
+        summary = self.bank.search_memory("candidate skill", status="unverified")
         self.assertIn("Reward signal: -1.0", summary)
         self.assertIn("Task status: failure", summary)
 
