@@ -493,6 +493,83 @@ def promote_skill_candidate(candidate_id: str, approval_token: str = "") -> str:
         return f"Promotion refused or failed without a verified install: {type(exc).__name__}: {exc}"
 
 
+def review_skill_candidate(
+    candidate_id: str,
+    run_tests: bool = True,
+    timeout_seconds: int = 15,
+) -> str:
+    """Create one consolidated static, diff, baseline, and behavior-test report."""
+    try:
+        folder, metadata, candidate_source = _read_candidate(candidate_id)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return json.dumps({
+            "candidate_id": candidate_id,
+            "status": "REVIEW_ERROR",
+            "error": f"{type(exc).__name__}: {exc}",
+            "activated": False,
+        }, indent=2)
+
+    static_text = evaluate_skill_candidate(candidate_id)
+    static_pass = "Static result: STATIC_PASS_REVIEW_REQUIRED" in static_text
+    diff_text = compare_skill_candidate(candidate_id)
+    current_baseline_sha = _sha256_file(_baseline_skill_path(str(metadata.get("name") or "")))
+    baseline_changed = current_baseline_sha != metadata.get("base_sha256")
+    test_result = None
+    if static_pass and run_tests:
+        try:
+            raw_test = test_skill_candidate(candidate_id, timeout_seconds=timeout_seconds)
+            test_result = json.loads(raw_test)
+        except (ValueError, TypeError) as exc:
+            test_result = {"status": "TEST_REPORT_PARSE_ERROR", "error": str(exc)}
+    elif not static_pass:
+        test_result = {"status": "NOT_RUN_STATIC_CHECK_FAILED"}
+    else:
+        test_result = {"status": "NOT_RUN_BY_REQUEST"}
+
+    accepted_test_states = {"TEST_PASS_REVIEW_REQUIRED", "TEST_PASS_NO_REGRESSION_COVERAGE"}
+    test_status = str((test_result or {}).get("status") or "NOT_RUN")
+    report = (test_result or {}).get("report") or {}
+    source_sha = hashlib.sha256(candidate_source.encode("utf-8")).hexdigest()
+    regression_count = int(report.get("regression_case_count") or 0)
+    candidate_failed = int(report.get("candidate_failed") or 0)
+    live_baseline_exists = current_baseline_sha is not None
+    review_ready = (
+        static_pass
+        and test_status in accepted_test_states
+        and candidate_failed == 0
+        and not baseline_changed
+        and (not live_baseline_exists or regression_count > 0)
+    )
+    result = {
+        "candidate_id": candidate_id,
+        "name": metadata.get("name"),
+        "status": "REVIEW_READY_FOR_EXPLICIT_APPROVAL" if review_ready else "REVIEW_NOT_READY",
+        "static_checks": "PASS" if static_pass else "FAIL",
+        "tests": test_status,
+        "tests_run": bool((test_result or {}).get("tests_run")),
+        "candidate_passed": report.get("candidate_passed", 0),
+        "candidate_failed": candidate_failed,
+        "regression_case_count": regression_count,
+        "candidate_regressions": report.get("candidate_regressions", []),
+        "baseline_failures": report.get("baseline_failures", []),
+        "baseline_exists": live_baseline_exists,
+        "baseline_changed_since_staging": baseline_changed,
+        "staged_source_sha256": metadata.get("sha256"),
+        "current_source_sha256": source_sha,
+        "effective_baseline_sha256": current_baseline_sha,
+        "source_diff": diff_text[:16000],
+        "test_report": test_result,
+        "activated": False,
+        "promotion_performed": False,
+        "message": (
+            "Candidate passed this review. It is still inactive; an explicit promotion decision is a separate action."
+            if review_ready else
+            "Candidate is not ready for promotion. Review the failed checks, missing regression coverage, baseline drift, or test report."
+        ),
+    }
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
 def mark_skill_version_active(name: str, source_path: str) -> dict:
     """Record that a versioned user override imported successfully on startup."""
     try:
