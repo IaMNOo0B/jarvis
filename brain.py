@@ -157,9 +157,35 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 title=args.get("title", "Pattern"),
                 content=args.get("content", ""),
                 source=args.get("source", "system"),
+                evidence=args.get("evidence", []),
+                confidence=args.get("confidence"),
+                outcome=args.get("outcome", ""),
+            )
+        if name == "validate_learned_knowledge":
+            return memory_instance.validate_knowledge(
+                entry_id=args.get("entry_id", ""),
+                evidence=args.get("evidence", []),
+                outcome=args.get("outcome", ""),
             )
         if name == "recall_memory":
-            return memory_instance.search_memory(args.get("query", ""))
+            return memory_instance.search_memory(
+                args.get("query", ""),
+                top_k=args.get("top_k", 5),
+                status=args.get("status", "all"),
+            )
+        if name == "stage_skill_candidate":
+            import skill_evolution
+            return skill_evolution.stage_skill_candidate(
+                name=args.get("name", ""),
+                code=args.get("code", ""),
+                rationale=args.get("rationale", ""),
+                source=args.get("source", ""),
+            )
+        if name == "evaluate_skill_candidate":
+            import skill_evolution
+            return skill_evolution.evaluate_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
 
         import system_actions
         result = system_actions.dispatch(name, args, services)
