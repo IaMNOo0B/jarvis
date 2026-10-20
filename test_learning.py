@@ -190,6 +190,37 @@ def handle(tool_name, args, services=None):
         self.assertFalse(metadata["activated"])
         self.assertFalse(metadata.get("promoted", False))
 
+    def test_consolidated_review_rejects_existing_skill_without_regression_coverage(self):
+        live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "review_existing", "skill.py")
+        os.makedirs(os.path.dirname(live_path), exist_ok=True)
+        baseline = '''SKILL_NAME = "review_existing"
+SKILL_DESCRIPTION = "Existing baseline."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "review_existing_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "existing"
+'''
+        candidate = '''SKILL_NAME = "review_existing"
+SKILL_DESCRIPTION = "Candidate preserving old tool."
+TOOL_DEFINITIONS = [{"type": "function", "function": {"name": "review_existing_run", "parameters": {"type": "object"}}}]
+def handle(tool_name, args, services=None):
+    return "existing"
+'''
+        with open(live_path, "w", encoding="utf-8") as handle:
+            handle.write(baseline)
+        cases = [{
+            "name": "candidate behaviour",
+            "kind": "feature",
+            "tool_name": "review_existing_run",
+            "args": {},
+            "expected_equals": "existing",
+        }]
+        staged = skill_evolution.stage_skill_candidate("review_existing", candidate, tests=cases)
+        candidate_id = staged.split("Staged skill candidate '", 1)[1].split("'", 1)[0]
+        report = json.loads(skill_evolution.review_skill_candidate(candidate_id, run_tests=True, timeout_seconds=10))
+        self.assertEqual(report["status"], "REVIEW_NOT_READY", report)
+        self.assertIn("Existing skill is missing regression coverage.", report["blockers"])
+        self.assertFalse(report["promotion_performed"])
+
     def test_candidate_flags_live_baseline_change(self):
         live_path = os.path.join(skill_evolution.LIVE_SKILLS_DIR, "change_skill", "skill.py")
         os.makedirs(os.path.dirname(live_path), exist_ok=True)
