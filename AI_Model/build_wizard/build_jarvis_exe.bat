@@ -51,8 +51,14 @@ if %errorlevel% neq 0 (
 )
 echo       pyinstaller installed.
 echo [4/6] Installing the runtime app dependencies into the BUILD env ...
-!PIP! install -r requirements.txt >nul 2>&1
-echo       deps installed (warnings above are usually harmless).
+!PIP! install -r requirements.txt
+if %errorlevel% neq 0 (
+    echo   [!!] Runtime dependency installation failed (exit %errorlevel%).
+    echo        Fix the pip error above before attempting to build.
+    pause
+    exit /b 1
+)
+echo       deps installed.
 echo.
 echo [5/6] Running the PyInstaller build ...
 echo        (onedir build; switch to --onefile in the bat for a single exe)

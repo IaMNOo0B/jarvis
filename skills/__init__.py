@@ -94,11 +94,16 @@ def list_skills():
                  (_tool_name(s) for s in
                   getattr(mod, "TOOL_DEFINITIONS", None) or [])
                  if t]
-        rows.append({
+        row = {
             "name": getattr(mod, "SKILL_NAME", name),
             "description": getattr(mod, "SKILL_DESCRIPTION", ""),
             "tools": tools,
             "status": "ok" if callable(getattr(mod, "handle", None))
                       else "no-handle",
-        })
+        }
+        if info.get("recovery"):
+            row["startup_recovery"] = info["recovery"]
+        if info.get("activation", {}).get("activated"):
+            row["active_version"] = info["activation"].get("version_id")
+        rows.append(row)
     return rows

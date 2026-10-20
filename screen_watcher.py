@@ -31,13 +31,8 @@ import time
 
 _STYLES = ("observant", "helpful", "dry wit")
 
-_PROMPT = """You are JARVIS, a calm British butler glancing at the user's screen.
-Describe what the user is doing in one short sentence. Then judge 0-10 how much
-they look stuck, confused, or in need of help (0 = flowing fine, 10 = clearly
-stuck on an error or going in circles).
-Remark style: {style}. The last thing you said was: {last_remark}.
-Reply ONLY as JSON, no other text:
-{{"summary": "...", "stuck_score": 0-10, "remark": "one short spoken line, or empty string if nothing is worth saying"}}"""
+from protocols import apply_protocols, load_prompt
+
 
 
 class ScreenWatcher:
@@ -151,7 +146,7 @@ class ScreenWatcher:
     def _analyze(self, img_b64: str, style: str, last_remark: str):
         try:
             return self.analyze_image(
-                img_b64, _PROMPT.format(style=style, last_remark=last_remark))
+                img_b64, apply_protocols(load_prompt("SCREEN_WATCHER_PROMPT").format(style=style, last_remark=last_remark)))
         except Exception as e:
             return None, str(e)
 

@@ -33,8 +33,8 @@ import yaml
 
 import actions
 from memory import memory_instance
-from persona import (CONSULT_SYSTEM_PROMPT, RESEARCH_AGAIN_PROMPT,
-                     SYSTEM_PROMPT, is_hedged)
+from persona import is_hedged
+from protocols import apply_protocols, load_prompt
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 # Secrets + panel settings are WRITTEN at runtime: next to the repo in dev,
@@ -156,9 +156,89 @@ def execute_single_tool(name: str, args: dict, services: dict | None = None) -> 
                 title=args.get("title", "Pattern"),
                 content=args.get("content", ""),
                 source=args.get("source", "system"),
+                evidence=args.get("evidence", []),
+                confidence=args.get("confidence"),
+                outcome=args.get("outcome", ""),
+            )
+        if name == "record_task_outcome":
+            return memory_instance.record_task_outcome(
+                task=args.get("task", ""),
+                status=args.get("status", ""),
+                result=args.get("result", ""),
+                evidence=args.get("evidence", []),
+                user_feedback=args.get("user_feedback", ""),
+            )
+        if name == "validate_learned_knowledge":
+            return memory_instance.validate_knowledge(
+                entry_id=args.get("entry_id", ""),
+                evidence=args.get("evidence", []),
+                outcome=args.get("outcome", ""),
             )
         if name == "recall_memory":
-            return memory_instance.search_memory(args.get("query", ""))
+            return memory_instance.search_memory(
+                args.get("query", ""),
+                top_k=args.get("top_k", 5),
+                status=args.get("status", "all"),
+            )
+        if name == "stage_skill_candidate":
+            import skill_evolution
+            return skill_evolution.stage_skill_candidate(
+                name=args.get("name", ""),
+                code=args.get("code", ""),
+                rationale=args.get("rationale", ""),
+                source=args.get("source", ""),
+                tests=args.get("tests"),
+            )
+        if name == "evaluate_skill_candidate":
+            import skill_evolution
+            return skill_evolution.evaluate_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
+        if name == "test_skill_candidate":
+            import skill_evolution
+            return skill_evolution.test_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                timeout_seconds=args.get("timeout_seconds", 15),
+            )
+        if name == "review_skill_candidate":
+            import skill_evolution
+            return skill_evolution.review_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                run_tests=args.get("run_tests", True),
+                timeout_seconds=args.get("timeout_seconds", 15),
+            )
+        if name == "promote_skill_candidate":
+            import skill_evolution
+            return skill_evolution.promote_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+                approval_token=args.get("approval_token", ""),
+            )
+        if name == "rollback_skill_version":
+            import skill_evolution
+            return skill_evolution.rollback_skill_version(
+                version_id=args.get("version_id", ""),
+                approval_token=args.get("approval_token", ""),
+            )
+        if name == "list_skill_versions":
+            import skill_evolution
+            return skill_evolution.list_skill_versions(
+                limit=args.get("limit", 20),
+            )
+        if name == "list_skill_candidates":
+            import skill_evolution
+            return skill_evolution.list_skill_candidates(
+                limit=args.get("limit", 20),
+            )
+        if name == "inspect_skill_candidate":
+            import skill_evolution
+            return skill_evolution.inspect_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
+        if name == "compare_skill_candidate":
+            import skill_evolution
+            return skill_evolution.compare_skill_candidate(
+                candidate_id=args.get("candidate_id", ""),
+            )
 
         import system_actions
         result = system_actions.dispatch(name, args, services)
@@ -276,7 +356,7 @@ class BrainEngine:
 
     # ----------------------------------------------------------- conversation
     def reset(self) -> None:
-        self.history: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.history: list[dict] = [{"role": "system", "content": apply_protocols(load_prompt("SYSTEM_PROMPT"))}]
 
     @property
     def cloud_configured(self) -> bool:
@@ -444,9 +524,11 @@ class BrainEngine:
     def _respond_locked(self, user_text: str) -> BrainResult:
         if not user_text:
             return BrainResult(reply="")
+        self.history[0] = {"role": "system", "content": apply_protocols(load_prompt("SYSTEM_PROMPT"))}
+        research_again_prompt = load_prompt("RESEARCH_AGAIN_PROMPT")
         # drop an unused research-directive left over from a previous turn
         while len(self.history) > 1 and self.history[-1].get("role") == "user" \
-                and self.history[-1].get("content") == RESEARCH_AGAIN_PROMPT:
+                and self.history[-1].get("content") == research_again_prompt:
             self.history.pop()
         self.history.append({"role": "user", "content": user_text})
         tools_used: list[str] = []
@@ -496,7 +578,7 @@ class BrainEngine:
                 if is_hedged(content):
                     hedged_rounds += 1
                     if hedged_rounds == 1 and rnd < self.max_rounds:
-                        self.history.append({"role": "user", "content": RESEARCH_AGAIN_PROMPT})
+                        self.history.append({"role": "user", "content": research_again_prompt})
                         continue
                     if secondary and not switched:
                         # let the OTHER brain take a swing at it
@@ -504,7 +586,7 @@ class BrainEngine:
                         escalated = True
                         active = secondary
                         self.emit("status", "escalating")
-                        self.history.append({"role": "user", "content": RESEARCH_AGAIN_PROMPT})
+                        self.history.append({"role": "user", "content": research_again_prompt})
                         continue
                 if not content:
                     content = self._synthesize_from_tools(tools_used)
@@ -637,7 +719,7 @@ class BrainEngine:
                 "messages": [{
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
+                        {"type": "text", "text": apply_protocols(prompt)},
                         {"type": "image_url", "image_url": {
                             "url": "data:image/jpeg;base64," + image_b64_jpeg}},
                     ],
@@ -850,7 +932,7 @@ class BrainEngine:
         mode = ("actually DO the work with your tools, then report what you did"
                 if focus == "execute"
                 else "answer thoroughly, using tools to research/verify first")
-        return CONSULT_SYSTEM_PROMPT.format(partner=partner, mode=mode)
+        return apply_protocols(load_prompt("CONSULT_SYSTEM_PROMPT").format(partner=partner, mode=mode))
 
     # ------------------------------------------------------------ fallbacks
     def _offline_reply(self, err: str | None) -> str:

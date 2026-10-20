@@ -160,7 +160,7 @@ def parallel_multi_browse(urls: list, max_chars_per_page: int = 2500) -> str:
     return "\n".join(output)
 
 def read_workspace_file(filepath: str) -> str:
-    """Reads a text file inside the workspace."""
+    """Reads text from a supplied file path."""
     try:
         target = os.path.abspath(os.path.join(WORKSPACE_DIR, filepath)) if not os.path.isabs(filepath) else filepath
         if not os.path.exists(target):
@@ -171,7 +171,7 @@ def read_workspace_file(filepath: str) -> str:
         return f"Error reading file {filepath}: {e}"
 
 def write_workspace_file(filepath: str, content: str) -> str:
-    """Writes or overwrites a file in the workspace."""
+    """Writes text to a supplied file path."""
     try:
         target = os.path.abspath(os.path.join(WORKSPACE_DIR, filepath)) if not os.path.isabs(filepath) else filepath
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -321,7 +321,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_workspace_file",
-            "description": "Read the contents of a workspace file for code review, refactoring, or debugging.",
+            "description": "Read text from a supplied file path for code review, refactoring, or debugging.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -354,7 +354,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "save_learned_knowledge",
-            "description": "Save newly acquired knowledge, algorithm implementations, architectural patterns, or facts to JARVIS's permanent memory.",
+            "description": "Save a learning record with source and evidence metadata. New records begin unverified.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -372,9 +372,219 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "Source reference or URL.",
                         "default": ""
+                    },
+                    "evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Source URLs, test outputs, or other supporting evidence."
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "description": "Tentative confidence from 0 to 1; not a substitute for validation."
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "description": "Observed result or what the task taught."
                     }
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_task_outcome",
+            "description": "Save an observed task episode with success, partial, or failure status and evidence, so later tasks can learn from real outcomes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {"type": "string", "description": "Concise description of the task that was actually attempted."},
+                    "status": {"type": "string", "enum": ["success", "partial", "failure"], "description": "Observed task result, not an assumption."},
+                    "result": {"type": "string", "description": "What happened, including any partial failure."},
+                    "evidence": {"type": "array", "items": {"type": "string"}, "description": "Tool results, test results, changed paths, or other evidence references."},
+                    "user_feedback": {"type": "string", "description": "Sir's actual feedback, only when he provided it."}
+                },
+                "required": ["task", "status", "result"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "validate_learned_knowledge",
+            "description": "Record concrete validation evidence and outcome for an existing learning record.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "string", "description": "ID returned by save_learned_knowledge or recall_memory."},
+                    "evidence": {"type": "array", "items": {"type": "string"}, "description": "Evidence references that support the validation."},
+                    "outcome": {"type": "string", "description": "What was tested or independently verified."}
+                },
+                "required": ["entry_id", "evidence", "outcome"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stage_skill_candidate",
+            "description": "Store a proposed reusable Jarvis skill in a separate staging area without loading or running it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Lowercase skill name, such as research_helper."},
+                    "code": {"type": "string", "description": "Complete Python source for skills/<name>/skill.py."},
+                    "rationale": {"type": "string", "description": "Problem this candidate is intended to solve."},
+                    "source": {"type": "string", "description": "Research source URLs or design references."},
+                    "tests": {
+                        "type": "array",
+                        "description": "Optional behavior test cases. Each case needs tool_name, args, kind (feature/regression), and exactly one expected_equals, expected_contains, or expected_is_none assertion.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "tool_name": {"type": "string"},
+                                "args": {"type": "object"},
+                                "kind": {"type": "string", "enum": ["feature", "regression"]},
+                                "expected_equals": {"type": ["string", "null"]},
+                                "expected_contains": {"type": "string"},
+                                "expected_is_none": {"type": "boolean"}
+                            },
+                            "required": ["tool_name"]
+                        }
+                    }
+                },
+                "required": ["name", "code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_skill_candidate",
+            "description": "Statically inspect a staged skill candidate for Python syntax and the Jarvis skill interface. Does not execute it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "test_skill_candidate",
+            "description": "Run the supplied candidate tests in a constrained disposable subprocess. When regression cases are provided, compare them against the current live skill. This records a report but never activates or promotes the candidate.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "timeout_seconds": {"type": "integer", "description": "Overall execution timeout from 3 to 30 seconds; defaults to 15."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "review_skill_candidate",
+            "description": "Produce one consolidated candidate review: static checks, diff from the current effective skill, baseline drift, candidate feature tests, and regression-test results. This tool never promotes or activates code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "run_tests": {"type": "boolean", "description": "Run the candidate test suite after static checks; defaults to true."},
+                    "timeout_seconds": {"type": "integer", "description": "Overall test timeout, 3-30 seconds; defaults to 15."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "promote_skill_candidate",
+            "description": "Install a candidate only after static checks and its test suite pass. The first call without approval_token only requests confirmation. After Sir explicitly approves this exact candidate ID, call again with approval_token equal to that ID. Creates a version archive and requires Jarvis restart; does not hot-load the code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."},
+                    "approval_token": {"type": "string", "description": "Must exactly equal candidate_id to authorize the operation."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rollback_skill_version",
+            "description": "Restore the versioned prior skill file for a promoted version ID, provided the live file still matches the promoted hash.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "version_id": {"type": "string", "description": "Exact version ID returned by promotion or version history."},
+                    "approval_token": {"type": "string", "description": "Must exactly equal version_id to authorize the operation."}
+                },
+                "required": ["version_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_skill_versions",
+            "description": "List version history, hashes, promotion state, and rollback availability without executing skill code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum versions to list, 1-50; defaults to 20."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_skill_candidates",
+            "description": "List staged skill proposals, evaluation status, and activation state without executing their code.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Maximum candidates to list, 1-50; defaults to 20."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_skill_candidate",
+            "description": "Read the exact staged skill source and metadata for review. Does not import or execute it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_skill_candidate",
+            "description": "Show the textual diff between a staged skill candidate and the current built-in skill, if one exists. Does not execute either version.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string", "description": "Exact candidate ID returned by stage_skill_candidate."}
+                },
+                "required": ["candidate_id"]
             }
         }
     },
@@ -389,6 +599,15 @@ TOOL_DEFINITIONS = [
                     "query": {
                         "type": "string",
                         "description": "Keyword or topic to search."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["all", "unverified", "validated"],
+                        "description": "Optional validation-state filter; defaults to all."
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of matching records (1-20; default 5)."
                     }
                 },
                 "required": ["query"]

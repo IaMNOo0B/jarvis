@@ -112,9 +112,9 @@ hidden_imports = [
     "yaml.parser",
     "yaml.reader",
     "yaml.resolver",
-    "yaml scanner",
-    "yaml serializer",
-    "yaml tokens",
+    "yaml.scanner",
+    "yaml.serializer",
+    "yaml.tokens",
     # --- psutil ---
     "psutil",
     "psutil._common",
@@ -155,17 +155,33 @@ APP = {
     "name": "JARVIS",
 }
 
-patches = []
-data_files = []
+data_files = [
+    (os.path.join(_repo_root, "JARVIS_PROTOCOLS.txt"), "."),
+    (os.path.join(_repo_root, "skill_test_runner.py"), "."),
+]
+
+# The skill loader scans the on-disk skills/ tree at runtime. Bundle the
+# source files as data as well as the Python package modules so user overrides
+# can compare against the shipped baseline in a frozen build.
+_skills_root = os.path.join(_repo_root, "skills")
+for _current_root, _dirnames, _filenames in os.walk(_skills_root):
+    _dirnames[:] = [d for d in _dirnames if d not in {"__pycache__", ".git"}]
+    for _filename in _filenames:
+        if not (_filename.endswith(".py") or _filename.endswith(".md")):
+            continue
+        _source_path = os.path.join(_current_root, _filename)
+        _relative_dir = os.path.relpath(_current_root, _repo_root)
+        data_files.append((_source_path, _relative_dir))
+
 binaries = []
 
 # Collect dynamic libs for native packages that PyInstaller's hooks might not
 # fully pull in on every wheel (especially sounddevice/PyQt6/opencv/pycaw).
-binaries += collect_dynamic_libs("sounddevice", need_info=True) or []
-binaries += collect_dynamic_libs("cv2", need_info=True) or []
-binaries += collect_dynamic_libs("pycaw", need_info=True) or []
+binaries += collect_dynamic_libs("sounddevice") or []
+binaries += collect_dynamic_libs("cv2") or []
+binaries += collect_dynamic_libs("pycaw") or []
 try:
-    binaries += collect_dynamic_libs("PyQt6", need_info=True) or []
+    binaries += collect_dynamic_libs("PyQt6") or []
 except Exception:
     pass
 
@@ -181,7 +197,6 @@ except Exception:
 a = Analysis(
     ["freeze_jarvis.py"],
     pathex=[_repo_root],
-    patcher=libraries,
     binaries=binaries if binaries else None,
     datas=data_files if data_files else None,
     hiddenimports=hidden_imports,

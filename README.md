@@ -18,6 +18,77 @@ automatically — arc-reactor icon, launches with `pythonw`, no console window).
 Say **"Hey Jarvis"**, wait for the chime, and talk. Or press **Ctrl+Alt+Space**
 (push-to-talk) if the room is noisy.
 
+## Editable AI instructions and protocols
+
+All AI-facing persona prompts and operating protocols are maintained in
+`JARVIS_PROTOCOLS.txt` in the application/repository root. Edit that file to
+change Jarvis's response language, style, research approach, consultation
+instructions, screen-watcher prompt, response-filter phrases, speech-transcription prompt, or operating rules. Keep the section
+markers intact. Changes to loaded prompts take effect on the next relevant
+turn/restart, depending on the component.
+
+If the file is missing, unreadable, or missing a required section, Jarvis
+fails closed instead of silently using a hardcoded prompt. Keep AI-facing
+workspace boundaries, file-handling instructions, and permission-request rules
+in this TXT file. The two-phase shutdown/restart/logoff confirmation mechanism
+remains executable code. Never place API keys in this file.
+
+## Evidence-backed learning and skill evolution
+
+New memory records preserve their source, evidence, confidence, observed outcome,
+and validation status. Records start as **unverified**; validation evidence and
+an outcome must be recorded before a record can be marked validated. A damaged
+memory file now raises a visible error rather than silently becoming an empty
+memory bank.
+
+Reusable skill ideas can be saved with `stage_skill_candidate`. Candidates are
+stored separately from live skills and are not imported or run. Use
+`list_skill_candidates`, `inspect_skill_candidate`, and
+`compare_skill_candidate` to review existing proposals, their hashes, metadata,
+and their diff from the current built-in skill. Use `evaluate_skill_candidate`
+for static Python/interface checks and baseline-change warnings. A static pass
+is not a runtime test. `review_skill_candidate` combines static checks, the
+diff, baseline state, and behavior/regression tests into one report. Existing
+skills require passing regression cases; new skills need feature tests. A
+review-ready candidate is still inactive until separately promoted. No
+candidate is activated by staging, inspection, or review. Jarvis must not claim that source code changed the base model's
+weights merely because it updated memory or skills.
+
+Meaningful task outcomes can be stored separately from reusable knowledge, with
+success/partial/failure status, a small reward signal, evidence references, and
+user feedback when actually provided. These episodes remain unverified until
+the separate validation step records reviewed evidence and an outcome. Memory
+search also checks source/evidence metadata and prefers validated records when
+relevance scores are tied.
+
+### Candidate testing, promotion, and rollback
+
+Pass test cases when staging a candidate, using `kind: "feature"` for new
+behavior and `kind: "regression"` for behavior that must remain compatible.
+`test_skill_candidate` runs the candidate and relevant baseline checks in a
+constrained disposable subprocess, with a timeout and output limit. It blocks
+network imports and confines ordinary Python file access to its temporary
+working area. This reduces risk, but it is **not a hardened OS sandbox**; use
+a disposable environment without secrets for untrusted code.
+
+A passing candidate is still not active. `promote_skill_candidate` requires
+an explicit second call whose `approval_token` exactly matches the candidate
+ID, verifies the tested candidate hash and baseline hashes, and stores the
+prior live override before an atomic replacement. Replacements are written
+to `%APPDATA%/JARVIS/skills` in packaged installs and take precedence over
+bundled skills. A restart is required to load them.
+
+On startup, a promoted skill that fails during import can be automatically
+rolled back **only** when the failing file's SHA-256 matches the recorded
+promotion. If the live file was manually changed or its hash is different,
+Jarvis leaves it untouched and reports the error. Diagnostics include the
+automatic recovery result.
+
+Use `list_skill_versions` to inspect version history and
+`rollback_skill_version` to intentionally restore a previous version.
+Intentional rollback requires the exact version ID as its approval token and
+refuses if the live file has changed since promotion.
+
 ## Two brains, one JARVIS
 
 JARVIS runs a **local Ollama core** and can pair it with an **online brain

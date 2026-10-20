@@ -66,7 +66,7 @@ voice:
   piper_dir: "models/piper"          # relative to AI_Model/
   stt_model: "base"                  # multilingual; tiny/base/small (no .en = understands Hinglish)
   stt_language: "auto"               # auto-detect per utterance; "en" pins English, "hi" pins Hindi
-  # stt_initial_prompt: ""           # override the built-in Hinglish bias prompt (empty = no prompt)
+  # Speech-transcription prompt is configured in JARVIS_PROTOCOLS.txt.
   wake_enabled: true
   wake_word: "hey_jarvis"          # -> local brain
   wake_word_cloud: "hello_jarvis"  # -> cloud brain for the turn (needs a trained openWakeWord model; skipped gracefully until present)
@@ -125,7 +125,6 @@ presence:
 
 safety:
   confirm_destructive: true          # ask "are you sure" before shutdown/restart/lock/logoff
-  workspace_only_writes: true        # file write tool confined to project folder
 
 text_mode:
   auto_research: true                # legacy text-mode behaviour: auto web research

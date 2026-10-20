@@ -1,0 +1,26 @@
+name: Protocol and learning tests
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile changed Python modules
+        run: python -m compileall -q actions.py brain.py jarvis_app.py memory.py persona.py protocols.py screen_watcher.py skill_evolution.py skill_test_runner.py skills/loader.py skills/__init__.py stt.py test_voice_loop.py test_packaging_spec.py
+      - name: Run policy, memory, and skill-staging tests
+        run: python -m unittest -v test_protocols test_learning test_packaging_spec

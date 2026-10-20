@@ -416,7 +416,6 @@ class JarvisApp:
         self.transcriber = Transcriber(
             vcfg.get("stt_model", "base"),
             language=vcfg.get("stt_language", "auto"),
-            initial_prompt=vcfg.get("stt_initial_prompt", None),
         )
 
     def _setup_services(self) -> None:
@@ -870,7 +869,7 @@ def prewarm_models() -> int:
     from stt import Transcriber
     Transcriber(model_name=v.get("stt_model", "base"),
                 language=v.get("stt_language", "auto"),
-                initial_prompt=v.get("stt_initial_prompt")).preload()
+                ).preload()
 
     print("[prewarm] voice model ...")
     from tts import default_voice_path
