@@ -18,6 +18,20 @@ automatically — arc-reactor icon, launches with `pythonw`, no console window).
 Say **"Hey Jarvis"**, wait for the chime, and talk. Or press **Ctrl+Alt+Space**
 (push-to-talk) if the room is noisy.
 
+## Editable AI instructions and protocols
+
+All AI-facing persona prompts and operating protocols are maintained in
+`JARVIS_PROTOCOLS.txt` in the application/repository root. Edit that file to
+change Jarvis's response language, style, research approach, consultation
+instructions, screen-watcher prompt, or operating rules. Keep the section
+markers intact. Changes to loaded prompts take effect on the next relevant
+turn/restart, depending on the component.
+
+If the file is missing, unreadable, or missing a required section, Jarvis must
+fail closed instead of silently using a hardcoded prompt. The TXT file controls
+AI instructions; application code must still enforce permissions, confirmations,
+and other security-critical behavior. Never place API keys in this file.
+
 ## Two brains, one JARVIS
 
 JARVIS runs a **local Ollama core** and can pair it with an **online brain
