@@ -182,7 +182,8 @@ class MemoryBank:
 
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         reward = {"success": 1.0, "partial": 0.0, "failure": -1.0}[status]
-        validated = bool(proof)
+        # Evidence is attached for review, but this call alone does not prove
+        # that evidence was independently checked. Validation is a separate step.
         item = {
             "id": uuid.uuid4().hex,
             "timestamp": now,
@@ -191,16 +192,16 @@ class MemoryBank:
             "record_type": "task_outcome",
             "source": "observed task outcome",
             "evidence": proof,
-            "confidence": 1.0 if validated else None,
+            "confidence": None,
             "outcome": status,
             "outcome_status": status,
             "reward": reward,
             "user_feedback": user_feedback,
             "tags": ["task-outcome", status],
-            "validation_status": "validated" if validated else "unverified",
-            "validation_evidence": proof,
-            "validated_at": now if validated else None,
-            "validation_outcome": f"Recorded task status: {status}" if validated else "",
+            "validation_status": "unverified",
+            "validation_evidence": [],
+            "validated_at": None,
+            "validation_outcome": "",
         }
         with self._lock:
             entries = self._load()
@@ -221,8 +222,11 @@ class MemoryBank:
         except OSError:
             pass
 
-        validation = "with evidence" if validated else "as unverified (no evidence supplied)"
-        return f"Recorded task outcome '{task}' as {status} {validation}; reward signal {reward:+.1f}."
+        evidence_note = " Evidence attached for later review." if proof else " No evidence was supplied."
+        return (
+            f"Recorded task outcome '{task}' as {status}; validation remains unverified."
+            f"{evidence_note} Reward signal {reward:+.1f}."
+        )
 
     def validate_knowledge(self, entry_id: str, evidence, outcome: str) -> str:
         """Mark a record reviewed only when concrete validation evidence is supplied."""
