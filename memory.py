@@ -336,7 +336,7 @@ class MemoryBank:
             f"({e.get('timestamp', 'unknown date')})"
             for e in recent
         ]
-        return "Recent learning records (validate before treating as proven):\n" + "\n".join(titles)
+        return "Recent learning records (validation state is shown in each entry):\n" + "\n".join(titles)
 
 
 memory_instance = MemoryBank()
